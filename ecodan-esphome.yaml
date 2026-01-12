@@ -3,19 +3,19 @@ substitutions:
   friendlyName: Ecodan heatpump
 
 # enable ota update via http request
-http_request:
-  buffer_size_tx: 20248
+#http_request:
+#  buffer_size_tx: 20248
 
 ota:
-  - platform: esphome
-  - platform: http_request
-  - platform: web_server
-#  password: !secret heatpump_ota_password
+  platform: esphome
+#  - platform: http_request
+#  - platform: web_server
+  password: !secret ota_password
 
 api:
   reboot_timeout: 0s
-#  encryption:
-#    key: !secret heatpump_encryption_key
+  encryption:
+    key: !secret api_encryption_key
 
 # uncomment if you have multiple esp running
 # esphome:
@@ -64,7 +64,7 @@ packages:
             confs/cpu-monitoring.yaml,    # recommended
             confs/request-codes.yaml,   # disable if your unit does not support request codes (service menu)
             confs/esp32s3.yaml,         # confs/esp32.yaml, for regular board
-            #confs/esp32s3-led.yaml,    # atom s3 status leds
+            confs/esp32s3-led.yaml,    # atom s3 status leds
             confs/zone1.yaml,
             confs/server-control-z1.yaml,
             ## enable if you want to use zone 2
@@ -112,7 +112,9 @@ logger:
 web_server:
   port: 80
   local: true
-  #ota: true
+  auth:
+    username: !secret web_server_username
+    password: !secret web_server_password
 
 ecodan:
   id: ecodan_instance
