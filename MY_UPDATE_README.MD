@@ -12,7 +12,7 @@ git merge upstream/main
 If not using bash, you might have to do that for python:
 
 ```
-c
+bash
 ```
 
 Activate the python environment:
