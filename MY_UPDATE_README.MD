@@ -3,6 +3,7 @@ Check instructions in: https://github.com/gekkekoe/esphome-ecodan-hp/blob/main/d
 Sync this fork with the original repo:
 
 ```
+git merge upstream/main
 git fetch upstream
 git checkout main 
 git merge upstream/main
@@ -11,7 +12,7 @@ git merge upstream/main
 If not using bash, you might have to do that for python:
 
 ```
-bash
+c
 ```
 
 Activate the python environment:
