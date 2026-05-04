@@ -5,6 +5,7 @@ Sync this fork with the original repo:
 ```
 git remote add upstream https://github.com/gekkekoe/esphome-ecodan-hp.git 
 git merge upstream/main
+
 git fetch upstream
 git checkout main 
 git merge upstream/main
@@ -17,16 +18,13 @@ If not using bash, you might have to do that for python:
 bash
 ```
 
-Activate the python environment:
+Activate the python environment and install/update depedencies:
 
 ```
 python3 -m venv venv
 source venv/bin/activate
 pip3 install wheel (or update with python3 -m pip install --upgrade wheel)
 pip3 install esphome  (or update with python3 -m pip install --upgrade esphome)
-
-
-source venv/bin/activate
 ```
 
 Build the firmware:
