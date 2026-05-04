@@ -3,7 +3,7 @@ Check instructions in: https://github.com/gekkekoe/esphome-ecodan-hp/blob/main/d
 Sync this fork with the original repo:
 
 ```
-git remote add upstream https://github.com/gekkekoe/esphome-ecodan-hp.git
+git remote add upstream https://github.com/gekkekoe/esphome-ecodan-hp.git 
 git merge upstream/main
 git fetch upstream
 git checkout main 
