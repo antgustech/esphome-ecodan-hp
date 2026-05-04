@@ -24,6 +24,7 @@ substitutions:
   version: Verzia softvéru
   led_brightness: Jas LED
   led_switch: LED indikátor
+  heatpump_switch_regular_dhw: Bežná TÚV
   heatpump_switch_force_dhw: Vynútiť ohrev TÚV
   heatpump_switch_power_mode: Tepelné čerpadlo
   heatpump_switch_holiday: Režim dovolenky
@@ -176,6 +177,10 @@ substitutions:
   solver_kwh_meter_feedback_source: Zdroj elektromera
   solver_kwh_meter_option_internal: Interný elektromer
   solver_kwh_meter_feedback: Spätná väzba elektromera
+
+  solver_dhw_mode: Režim TÚV solvera
+  solver_dhw_mode_option_regular: Bežný
+  solver_dhw_mode_option_forced: Vynútený
 
   asgard_vt_temp_sensor_source: Zdroj virtuálneho termostatu
 

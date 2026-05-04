@@ -123,7 +123,8 @@ header {
     color: var(--text); font-family: var(--mono); font-size: 10px; padding: 4px 8px; 
     cursor: pointer; outline: none; 
     flex: 1; max-width: 220px; margin-left: 10px;
-    text-align: left; 
+    text-align: right;
+    text-align-last: right; /* This forces Safari/Chrome to respect the alignment */
   }
   .ctrl-select:focus { border-color: var(--accent); }
   
@@ -213,6 +214,23 @@ header {
   .toast.show { opacity: 1; transform: translateY(0); }
   .toast.error { border-color: var(--danger); color: var(--danger); }
 
+  /* Drag and Drop visual feedback */
+  .ctrl-card.dragging {
+    opacity: 0.5;
+    transform: scale(0.98);
+    border: 1px dashed var(--accent);
+    transition: transform 0.1s ease, opacity 0.1s ease;
+  }
+  #settings-card-container .section-title {
+    cursor: grab;
+    /* Add a little padding to make the grab area slightly larger */
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+  #settings-card-container .section-title:active {
+    cursor: grabbing;
+  }
+
   @media (min-width: 768px) { .chart-container { height: 200px; } .full-width { grid-column: 1 / -1; } }
   @media (max-width: 480px) {
       header { flex-wrap: wrap; }
@@ -221,6 +239,12 @@ header {
       .stat-row { gap: 8px; justify-content: space-between; }
       .ctrl-label { font-size: 10px; }
     }
+  /* ── Physics Card Tabs & Steppers ── */
+  .physics-card .step-input { width: 72px; font-size: 12px; }
+  .phys-tabs { display: flex; background: var(--bg); border-radius: 8px; margin-bottom: 18px; padding: 4px; gap: 4px; }
+  .phys-tabs button { flex: 1; background: transparent; border: none; color: var(--text3); padding: 8px 0; border-radius: 6px; cursor: pointer; font-family: var(--sans); font-size: 13px; transition: 0.2s; }
+  .phys-tabs button.active-heat { background: var(--heat); color: #fff; font-weight: 600; }
+  .phys-tabs button.active-cool { background: var(--cool); color: #fff; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -462,9 +486,9 @@ header {
 </div>
 
 <div id="view-settings" class="view-section">
-  <div style="display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+  <div id="settings-card-container" style="display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
     
-    <div class="ctrl-card">
+    <div class="ctrl-card" id="card-z1">
       <div class="section-title">Zone 1</div>
       <div class="ctrl-row"><span class="ctrl-label">Operating Mode</span><select class="ctrl-select" id="sel-z1mode" onchange="sendSelect('operating_mode_z1', this)"><option>Heat Target Temperature</option><option>Heat Flow Temperature</option><option>Heat Compensation Curve</option><option>Cool Target Temperature</option><option>Cool Flow Temperature</option><option>Floor Dry Up</option><option>Cool Compensation Curve</option></select></div>
       
@@ -562,7 +586,49 @@ header {
       </div>
     </div>
 
-    <div class="ctrl-card">
+    <div class="ctrl-card" id="card-dhw">
+      <div class="section-title">DHW</div>
+      
+      <div style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 10px; background: var(--bg2);">
+        
+        <div class="ctrl-row" style="border-bottom: 1px solid var(--border); padding: 0 0 12px 0;">
+          <span class="ctrl-label">Force DHW Now</span>
+          <label class="toggle-wrap">
+            <input type="checkbox" id="sw-fdhw" onchange="sendSwitch('force_dhw', this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        
+        <div class="ctrl-row" style="border-bottom: none; padding: 12px 0 0 0;">
+          <span class="ctrl-label param-label">Trigger Regular DHW<span class="tip-icon">?</span>
+          <span class="tip-box">Temporarily bumps the DHW target by max drop + 1°C to trigger a normal DHW heating cycle.</span></span>
+          <label class="toggle-wrap">
+            <input type="checkbox" id="sw-regular-dhw" onchange="sendBool('sw_regular_dhw', this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        
+      </div>
+
+      <div style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 15px; background: var(--bg2);">
+        <div class="stat-row" style="margin-top: 0;">
+          <div class="stat-item"><span class="stat-label">Setpoint</span><span class="stat-value" id="dhw-setpoint">—</span></div>
+          <div class="stat-item"><span class="stat-label">Drop</span><span class="stat-value" id="dhw-drop">—</span></div>
+          <div class="stat-item"><span class="stat-label">Consumed</span><span class="stat-value" id="dhw-cons">—</span></div>
+          <div class="stat-item"><span class="stat-label">Produced</span><span class="stat-value" id="dhw-prod">—</span></div>
+        </div>
+      </div>
+
+      <div style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 15px; background: var(--bg2);">
+        <div style="display:flex; align-items:flex-end; gap:14px; margin-bottom:10px;">
+          <div><div class="stat-label">Tank Temp</div><div class="big-temp" id="dhw-current">—<span>°C</span></div></div>
+          <div style="flex:1;"><div class="stat-label">Target</div><div class="stepper"><button class="step-btn" onclick="step('dhw-sp', -0.5)">−</button><div class="step-val" id="dhw-sp-val">—</div><button class="step-btn" onclick="step('dhw-sp', +0.5)">+</button></div></div>
+        </div>
+        <button class="send-btn" onclick="sendDHW(this)" style="margin-bottom:0;">Apply DHW</button>
+      </div>
+    </div>
+
+    <div class="ctrl-card" id="card-aa">
       <div class="section-title">Auto Adaptive</div>
       
       <div style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 10px; background: var(--bg2);">
@@ -633,28 +699,59 @@ header {
       </div>
     </div>  
 
-    <div class="ctrl-card">
-      <div class="section-title">DHW</div>
-      
+    <div class="ctrl-card" id="card-server-control">
+      <div class="section-title">Server Control</div>
+
       <div style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 10px; background: var(--bg2);">
-        <div class="ctrl-row" style="border-bottom: none; padding: 0;"><span class="ctrl-label">Force DHW Now</span><label class="toggle-wrap"><input type="checkbox" id="sw-fdhw" onchange="sendSwitch('force_dhw', this.checked)"><span class="toggle-slider"></span></label></div>
-      </div>
-
-      <div style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 15px; background: var(--bg2);">
-        <div class="stat-row" style="margin-top: 0;">
-          <div class="stat-item"><span class="stat-label">Setpoint</span><span class="stat-value" id="dhw-setpoint">—</span></div>
-          <div class="stat-item"><span class="stat-label">Drop</span><span class="stat-value" id="dhw-drop">—</span></div>
-          <div class="stat-item"><span class="stat-label">Consumed</span><span class="stat-value" id="dhw-cons">—</span></div>
-          <div class="stat-item"><span class="stat-label">Produced</span><span class="stat-value" id="dhw-prod">—</span></div>
+        <div class="sub-label" style="margin-top: 0; border: none; padding-bottom: 5px;">Ecodan Server Control</div>
+        <div class="ctrl-row">
+          <span class="ctrl-label">Enable Server Control</span>
+          <label class="toggle-wrap">
+            <input type="checkbox" id="sw-sc-enable" onchange="onServerControlToggle(this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
         </div>
       </div>
 
-      <div style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 15px; background: var(--bg2);">
-        <div style="display:flex; align-items:flex-end; gap:14px; margin-bottom:10px;">
-          <div><div class="stat-label">Tank Temp</div><div class="big-temp" id="dhw-current">—<span>°C</span></div></div>
-          <div style="flex:1;"><div class="stat-label">Target</div><div class="stepper"><button class="step-btn" onclick="step('dhw-sp', -0.5)">−</button><div class="step-val" id="dhw-sp-val">—</div><button class="step-btn" onclick="step('dhw-sp', +0.5)">+</button></div></div>
+      <div id="sc-prohibit-section" style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 15px; background: var(--bg2);">
+        <div class="sub-label" style="margin-top: 0; border: none; padding-bottom: 5px;">Prohibit Controls</div>
+        <div class="ctrl-row">
+          <span class="ctrl-label">Prohibit DHW</span>
+          <label class="toggle-wrap">
+            <input type="checkbox" id="sw-sc-prohibit-dhw" onchange="sendSwitch('server_control_prohibit_dhw', this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
         </div>
-        <button class="send-btn" onclick="sendDHW(this)" style="margin-bottom:0;">Apply DHW</button>
+        <div class="ctrl-row">
+          <span class="ctrl-label">Prohibit Z1 Heating</span>
+          <label class="toggle-wrap">
+            <input type="checkbox" id="sw-sc-prohibit-z1-heat" onchange="sendSwitch('server_control_prohibit_z1_heating', this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="ctrl-row" id="sc-prohibit-z1-cool-row">
+          <span class="ctrl-label">Prohibit Z1 Cooling</span>
+          <label class="toggle-wrap">
+            <input type="checkbox" id="sw-sc-prohibit-z1-cool" onchange="sendSwitch('server_control_prohibit_z1_cooling', this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div id="sc-z2-prohibits" style="display:none;">
+          <div class="ctrl-row">
+            <span class="ctrl-label">Prohibit Z2 Heating</span>
+            <label class="toggle-wrap">
+              <input type="checkbox" id="sw-sc-prohibit-z2-heat" onchange="sendSwitch('server_control_prohibit_z2_heating', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Prohibit Z2 Cooling</span>
+            <label class="toggle-wrap">
+              <input type="checkbox" id="sw-sc-prohibit-z2-cool" onchange="sendSwitch('server_control_prohibit_z2_cooling', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -688,7 +785,7 @@ header {
         </div>
       </div>
 
-      <div class="ctrl-row" style="border-bottom: none;">
+      <div class="ctrl-row">
         <span class="ctrl-label param-label">DHW Threshold<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">°C</span>If DHW temp drops below (Target - Drop) + Threshold, Odin schedules DHW during a cheap/sunny hour. 0 = disabled.</span></span>
         <div class="stepper">
           <button class="step-btn" onclick="step('dhw-thresh', -0.5)">−</button>
@@ -696,6 +793,15 @@ header {
           <button class="step-btn" onclick="step('dhw-thresh', +0.5)">+</button>
           <button class="step-btn" style="margin-left: 6px; border-color: var(--accent); color: var(--accent);" onclick="sendOdinThresh(this)" title="Apply Threshold">✓</button>
         </div>
+      </div>
+      
+      <div class="ctrl-row" style="border-bottom: none;">
+        <span class="ctrl-label param-label">ODIN DHW Trigger<span class="tip-icon">?</span><span class="tip-box">
+          <span class="tip-unit">Mode</span>Method used when ODIN schedules DHW. Regular bumps the setpoint by max drop + 1°C, Forced is faster but at the cost of higher consumption</span></span>
+        <select class="ctrl-select" id="sel-odin-dhw-mode" onchange="sendSelect('solver_dhw_mode', this)">
+          <option>Regular</option>
+          <option>Forced</option>
+        </select>
       </div>
       
       <div id="run-solver-row" style="display:none; margin-top: 12px; gap: 8px; align-items: stretch; flex-wrap: nowrap;">
@@ -729,30 +835,58 @@ header {
         </div>
       </div>
 
-    <div class="ctrl-card physics-card">
+      <div class="ctrl-card physics-card">
       <div class="section-title">Physics Data (Daily Averages)</div>
-      <style>.physics-card .step-input { width: 72px; font-size: 12px; }</style>
-      <div class="sub-label" style="margin-top:0;">Sent to Solver (Overridable)</div>
-
-      <div class="ctrl-row">
-        <span class="ctrl-label param-label">Heat Produced<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">kWh/day</span>Total heat energy produced yesterday in heating mode. DHW excluded. Used to calculate COP.</span></span>
-        <div class="stepper"><button class="step-btn" onclick="step('raw-heat', -0.1)">−</button><input type="number" class="step-input" id="raw-heat-val" onchange="manualInput('raw-heat', this.value)" /><button class="step-btn" onclick="step('raw-heat', +0.1)">+</button></div>
+      <div class="phys-tabs">
+        <button id="tab-btn-heat" class="active-heat" onclick="togglePhysicsTab('heat')">Heating Profile</button>
+        <button id="tab-btn-cool" onclick="togglePhysicsTab('cool')">Cooling Profile</button>
       </div>
 
-      <div class="ctrl-row">
-        <span class="ctrl-label param-label">Elec Consumed<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">kWh/day</span>Electricity used by the heat pump yesterday in heating mode. DHW excluded. COP = Heat / Elec.</span></span>
-        <div class="stepper"><button class="step-btn" onclick="step('raw-elec', -0.1)">−</button><input type="number" class="step-input" id="raw-elec-val" onchange="manualInput('raw-elec', this.value)" /><button class="step-btn" onclick="step('raw-elec', +0.1)">+</button></div>
+      <div id="phys-group-heat">
+        <div class="ctrl-row">
+          <span class="ctrl-label param-label">Heat Produced<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">kWh/day</span>Total heat energy produced yesterday in heating mode. DHW excluded. Used to calculate COP.</span></span>
+          <div class="stepper"><button class="step-btn" onclick="step('raw-heat', -0.1)">−</button><input type="number" class="step-input" id="raw-heat-val" onchange="manualInput('raw-heat', this.value)" /><button class="step-btn" onclick="step('raw-heat', +0.1)">+</button></div>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label param-label">Elec Consumed<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">kWh/day</span>Electricity used by the heat pump yesterday in heating mode. DHW excluded. COP = Heat / Elec.</span></span>
+          <div class="stepper"><button class="step-btn" onclick="step('raw-elec', -0.1)">−</button><input type="number" class="step-input" id="raw-elec-val" onchange="manualInput('raw-elec', this.value)" /><button class="step-btn" onclick="step('raw-elec', +0.1)">+</button></div>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label param-label">Runtime<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">hours/day</span>Hours the heat pump ran in heating mode yesterday. Used to derive thermal mass.</span></span>
+          <div class="stepper"><button class="step-btn" onclick="step('raw-run', -0.1)">−</button><input type="number" class="step-input" id="raw-run-val" onchange="manualInput('raw-run', this.value)" /><button class="step-btn" onclick="step('raw-run', +0.1)">+</button></div>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label param-label">Avg Ambient Temp<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">°C</span>Average outdoor temperature yesterday. Used to calculate heat loss and COP correction.</span></span>
+          <div class="stepper"><button class="step-btn" onclick="step('raw-out', -0.1)">−</button><input type="number" class="step-input" id="raw-out-val" onchange="manualInput('raw-out', this.value)" /><button class="step-btn" onclick="step('raw-out', +0.1)">+</button></div>
+        </div>
       </div>
 
-      <div class="ctrl-row">
-        <span class="ctrl-label param-label">Runtime<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">hours/day</span>Hours the heat pump ran in heating mode yesterday. Used to derive thermal mass.</span></span>
-        <div class="stepper"><button class="step-btn" onclick="step('raw-run', -0.1)">−</button><input type="number" class="step-input" id="raw-run-val" onchange="manualInput('raw-run', this.value)" /><button class="step-btn" onclick="step('raw-run', +0.1)">+</button></div>
+      <div id="phys-group-cool" style="display: none;">
+        <div class="ctrl-row">
+          <span class="ctrl-label param-label">Cooling Produced<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">kWh/day</span>Total cooling energy produced yesterday. Used to calculate EER.</span></span>
+          <div class="stepper"><button class="step-btn" onclick="step('raw-cool-prod', -0.1)">−</button><input type="number" class="step-input" id="raw-cool-prod-val" onchange="manualInput('raw-cool-prod', this.value)" /><button class="step-btn" onclick="step('raw-cool-prod', +0.1)">+</button></div>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label param-label">Cool Elec Consumed<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">kWh/day</span>Electricity used by the heat pump yesterday in cooling mode. EER = Cool / Elec.</span></span>
+          <div class="stepper"><button class="step-btn" onclick="step('raw-cool-elec', -0.1)">−</button><input type="number" class="step-input" id="raw-cool-elec-val" onchange="manualInput('raw-cool-elec', this.value)" /><button class="step-btn" onclick="step('raw-cool-elec', +0.1)">+</button></div>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label param-label">Cooling Runtime<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">hours/day</span>Hours the heat pump ran in cooling mode yesterday.</span></span>
+          <div class="stepper"><button class="step-btn" onclick="step('raw-cool-run', -0.1)">−</button><input type="number" class="step-input" id="raw-cool-run-val" onchange="manualInput('raw-cool-run', this.value)" /><button class="step-btn" onclick="step('raw-cool-run', +0.1)">+</button></div>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label param-label">Cooling Avg Ambient<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">°C</span>Average outdoor temperature yesterday during cooling.</span></span>
+          <div class="stepper"><button class="step-btn" onclick="step('raw-cool-out', -0.1)">−</button><input type="number" class="step-input" id="raw-cool-out-val" onchange="manualInput('raw-cool-out', this.value)" /><button class="step-btn" onclick="step('raw-cool-out', +0.1)">+</button></div>
+        </div>
       </div>
 
-      <div class="ctrl-row">
-        <span class="ctrl-label param-label">Avg Ambient Temp<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">°C</span>Average outdoor temperature yesterday. Used to calculate heat loss and COP correction.</span></span>
-        <div class="stepper"><button class="step-btn" onclick="step('raw-out', -0.1)">−</button><input type="number" class="step-input" id="raw-out-val" onchange="manualInput('raw-out', this.value)" /><button class="step-btn" onclick="step('raw-out', +0.1)">+</button></div>
-      </div>
+      <div class="sub-label" style="margin-top:20px;">Universal Building Physics</div>
 
       <div class="ctrl-row">
         <span class="ctrl-label param-label">Avg Room Temp<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">°C</span>Average room temperature yesterday. Together with outside temp, determines heat loss coefficient.</span></span>
@@ -785,7 +919,7 @@ header {
       </div>
 
       <button class="send-btn" onclick="sendPhysics(this)" style="margin-bottom:0; margin-top:24px;">Apply Physics Data</button>
-    </div>    
+    </div>
 
   </div>
   
@@ -887,7 +1021,8 @@ const pending = {
   'raw-heat': null, 'raw-elec': null, 'raw-run': null,
   'raw-out': null, 'raw-room': null, 'raw-delta': null, 'raw-solar-factor': null,
   'batt-soc': null, 'batt-max-dis': null,
-  'cool-start-z1': null, 'cool-min-z1': null, 'dhw-thresh': null
+  'cool-start-z1': null, 'cool-min-z1': null, 'dhw-thresh': null,
+  'raw-cool-prod': null, 'raw-cool-elec': null, 'raw-cool-run': null, 'raw-cool-out': null
 };
 
 const lastEdit = {};
@@ -931,7 +1066,11 @@ const LIMITS = {
   'batt-max-dis': { min: 0.5, max: 15.0, step: 0.1 },
   'cool-start-z1': { min: 16.0, max: 22.0, step: 0.5 },
   'cool-min-z1':   { min: 10.0, max: 25.0, step: 0.5 },
-  'dhw-thresh':    { min: 0.0, max: 20.0, step: 0.5 }
+  'dhw-thresh':    { min: 0.0, max: 20.0, step: 0.5 },
+  'raw-cool-prod': { min: 0.0, max: 200.0, step: 0.1 },
+  'raw-cool-elec': { min: 0.0, max: 100.0, step: 0.1 },
+  'raw-cool-run':  { min: 0.0, max: 24.0, step: 0.1 },
+  'raw-cool-out':  { min: -25.0, max: 50.0, step: 0.1 }
 };
 
 const STEP_EL = { 
@@ -950,7 +1089,8 @@ const STEP_EL = {
   'batt-soc': 'batt-soc-val',
   'batt-max-dis': 'batt-max-dis-val',
   'cool-start-z1': 'cool-start-z1-val', 'cool-min-z1': 'cool-min-z1-val',
-  'dhw-thresh': 'dhw-thresh-val'
+  'dhw-thresh': 'dhw-thresh-val',
+  'raw-cool-prod': 'raw-cool-prod-val', 'raw-cool-elec': 'raw-cool-elec-val', 'raw-cool-run': 'raw-cool-run-val', 'raw-cool-out': 'raw-cool-out-val'
 };
 
 let lastGraphUpdate = 0;
@@ -1315,11 +1455,14 @@ function initCharts() {
   });
   
   // --- Initialize ODIN Charts (Empty on load) ---
-  const labels48 = Array.from({length: 48}, (_, i) => `${i % 24}:00`);
+  const labels72 = Array.from({length: 72}, (_, i) => {
+      const hour = i % 24;
+      return `${String(hour).padStart(2,'0')}:00`;
+  });
   const monoFont = { family: "'JetBrains Mono'", size: 11 };
   const xAxis = { 
       min: -0.5, 
-      max: 47.5,
+      max: 71.5,
       ticks: { 
           autoSkip: false,
           color: function(context) {
@@ -1356,7 +1499,7 @@ function initCharts() {
   };
   const odinZoomConfig = {
       limits: {
-          x: { min: -0.5, max: 47.5, minRange: 2 }
+          x: { min: -0.5, max: 71.5, minRange: 2 }
       },
       pan: {
           enabled: true, mode: 'x', modifierKey: 'alt', threshold: 10,
@@ -1389,14 +1532,20 @@ function initCharts() {
       }
   };
 
+  const getMode = (ctx) => {
+      if (ctx.dataIndex !== undefined && odinDataCache && odinDataCache.operation_mode) return odinDataCache.operation_mode[ctx.dataIndex];
+      if (typeof latestState !== 'undefined' && latestState.operation_mode !== undefined) return latestState.operation_mode;
+      return 2;
+  };
+
   odinConsChart = new Chart(document.getElementById('odinConsChart').getContext('2d'), {
       type: 'bar',
       data: {
-          labels: labels48,
+          labels: labels72,
           datasets: [
               { label: 'Expected (Grid)',  data: [], backgroundColor: 'rgba(255,176,32,0.35)',  borderColor: '#ffb020', borderWidth: 1, stack: 'Stack 0' },
               { label: 'Expected (Solar)', data: [], backgroundColor: 'rgba(144, 213, 255, 0.35)',  borderColor: '#57B9FF', borderWidth: 1, stack: 'Stack 0' },          
-              { label: 'Actual Heat',      data: [], backgroundColor: 'rgba(127,255,127,0.35)', borderColor: '#7fff7f', borderWidth: 1, stack: 'Stack 1' },
+              { label: 'Actual Climate',   data: [], backgroundColor: 'rgba(127,255,127,0.35)', borderColor: '#7fff7f', borderWidth: 1, stack: 'Stack 1' },
               { label: 'Actual DHW',       data: [], backgroundColor: 'rgba(255,107,53,0.35)',  borderColor: '#ff6b35', borderWidth: 1, stack: 'Stack 1' },
               { label: 'Actual Standby',   data: [], backgroundColor: 'rgba(74,90,122,0.35)',   borderColor: '#4a5a7a', borderWidth: 1, stack: 'Stack 1' }
           ]
@@ -1417,12 +1566,12 @@ function initCharts() {
   odinProdChart = new Chart(document.getElementById('odinProdChart').getContext('2d'), {
       type: 'bar',
       data: {
-          labels: labels48,
+          labels: labels72,
           datasets: [
-              { label: 'Expected Heat',  data: [], backgroundColor: 'rgba(255,176,32,0.35)',  borderColor: '#ffb020', borderWidth: 1, stack: 'Stack 0' },
-              { label: 'Expected Solar', data: [], backgroundColor: 'rgba(144, 213, 255, 0.35)',  borderColor: '#57B9FF', borderWidth: 1, stack: 'Stack 2' },
-              { label: 'Actual Heat',    data: [], backgroundColor: 'rgba(127,255,127,0.35)', borderColor: '#7fff7f', borderWidth: 1, stack: 'Stack 1' },
-              { label: 'Actual DHW',     data: [], backgroundColor: 'rgba(255,107,53,0.35)',  borderColor: '#ff6b35', borderWidth: 1, stack: 'Stack 1' }
+              { label: 'Expected Climate',  data: [], backgroundColor: 'rgba(255,176,32,0.35)', borderColor: '#ffb020', borderWidth: 1, stack: 'Stack 0' },
+              { label: 'Expected Solar',    data: [], backgroundColor: 'rgba(144, 213, 255, 0.35)', borderColor: '#57B9FF', borderWidth: 1, stack: 'Stack 2' },
+              { label: 'Actual Climate',    data: [], backgroundColor: 'rgba(127,255,127,0.35)', borderColor: '#7fff7f', borderWidth: 1, stack: 'Stack 1' },
+              { label: 'Actual DHW',        data: [], backgroundColor: 'rgba(255,107,53,0.35)', borderColor: '#ff6b35', borderWidth: 1, stack: 'Stack 1' }
           ]
       },
       options: {
@@ -1441,10 +1590,10 @@ function initCharts() {
   odinCostChart = new Chart(document.getElementById('odinCostChart').getContext('2d'), {
       type: 'bar',
       data: {
-          labels: labels48,
+          labels: labels72,
           datasets: [
-              { label: 'Expected',    data: [], backgroundColor: 'rgba(255,176,32,0.35)',  borderColor: '#ffb020', borderWidth: 1 },
-              { label: 'Actual',  data: [], backgroundColor: 'rgba(127,255,127,0.35)', borderColor: '#7fff7f', borderWidth: 1 }
+              { label: 'Expected', data: [], backgroundColor: 'rgba(255,176,32,0.35)', borderColor: '#ffb020', borderWidth: 1 },
+              { label: 'Actual',   data: [], backgroundColor: 'rgba(127,255,127,0.35)', borderColor: '#7fff7f', borderWidth: 1 }
           ]
       },
       options: {
@@ -1464,7 +1613,7 @@ function initCharts() {
   odinTempChart = new Chart(document.getElementById('odinTempChart').getContext('2d'), {
       type: 'line',
       data: {
-          labels: labels48,
+          labels: labels72,
           datasets: [
               // [0] Band top — fill down to dataset[1]
               { label: 'Schedule Max (°C)',
@@ -1490,7 +1639,7 @@ function initCharts() {
               { label: 'Actual',
                 data: [], borderColor: '#ffff00', borderWidth: 2,
                 backgroundColor: 'transparent', fill: false,
-                tension: 0.3, pointRadius: 2, spanGaps: true }
+                tension: 0.3, pointRadius: 2, spanGaps: false }
           ]
       },
       options: {
@@ -1508,14 +1657,8 @@ function initCharts() {
                   callbacks: {
                       title: function(ctx) {
                           if (!ctx || !ctx.length) return '';
-                          let val = ctx[0].parsed.x;
-                          let h = Math.floor(val) % 24;
-                          if (h < 0) h += 24; 
-                          
-
-                          let m = Math.round((val - Math.floor(val)) * 60);
-                          
-                          return h + ':' + (m < 10 ? '0' + m : m);
+                          const index = ctx[0].dataIndex;
+                          return labels72[index] || '';
                       }
                   }
               }
@@ -1534,7 +1677,7 @@ function initCharts() {
   odinBattChart = new Chart(document.getElementById('odinBattChart').getContext('2d'), {
       type: 'bar',
       data: {
-          labels: labels48,
+          labels: labels72,
           datasets: [{ label: 'Battery Discharge (kWh)', data: [], backgroundColor: 'rgba(251,191,36,0.45)', borderColor: '#fbbf24', borderWidth: 1 }]
       },
       options: {
@@ -1554,7 +1697,7 @@ function initCharts() {
   odinPriceChart = new Chart(document.getElementById('odinPriceChart').getContext('2d'), {
       type: 'bar',
       data: {
-          labels: labels48,
+          labels: labels72,
           datasets: [{ label: 'Price (EUR/kWh)', data: [], backgroundColor: 'rgba(129,140,248,0.45)', borderColor: '#818cf8', borderWidth: 1 }]
       },
       options: {
@@ -1574,7 +1717,7 @@ function initCharts() {
   odinWeatherChart = new Chart(document.getElementById('odinWeatherChart').getContext('2d'), {
       type: 'line',
       data: {
-          labels: labels48,
+          labels: labels72,
           datasets: [
               { label: 'Ambient Temp (°C)', data: [], borderColor: '#38bdf8', borderWidth: 2,
                 backgroundColor: 'transparent', fill: false, tension: 0.3, pointRadius: 0, spanGaps: true,
@@ -1604,20 +1747,22 @@ function initCharts() {
 function updateOdinCharts() {
     if (!odinConsChart || !odinCostChart || !odinTempChart || !odinBattChart || !odinPriceChart || !odinWeatherChart || !odinProdChart) return;
 
-    const rawNvsCons        = odinDataCache ? (odinDataCache.actual_cons          || new Array(48).fill(null)) : new Array(48).fill(null);
-    const rawNvsStandbyCons = odinDataCache ? (odinDataCache.actual_standby_cons  || new Array(48).fill(null)) : new Array(48).fill(null);
-    const rawNvsProd    = odinDataCache ? (odinDataCache.actual_prod      || new Array(48).fill(null)) : new Array(48).fill(null);
-    const rawNvsDhwCons = odinDataCache ? (odinDataCache.actual_dhw_cons  || new Array(48).fill(null)) : new Array(48).fill(null);
-    const rawNvsDhwProd = odinDataCache ? (odinDataCache.actual_dhw_prod  || new Array(48).fill(null)) : new Array(48).fill(null);
+    const rawNvsCons        = odinDataCache ? (odinDataCache.actual_cons          || new Array(72).fill(null)) : new Array(72).fill(null);
+    const rawNvsStandbyCons = odinDataCache ? (odinDataCache.actual_standby_cons  || new Array(72).fill(null)) : new Array(72).fill(null);
+    const rawNvsProd    = odinDataCache ? (odinDataCache.actual_prod      || new Array(72).fill(null)) : new Array(72).fill(null);
+    const rawNvsDhwCons = odinDataCache ? (odinDataCache.actual_dhw_cons  || new Array(72).fill(null)) : new Array(72).fill(null);
+    const rawNvsDhwProd = odinDataCache ? (odinDataCache.actual_dhw_prod  || new Array(72).fill(null)) : new Array(72).fill(null);
 
     const actualConsHeatByHour    = [...rawNvsCons];
     const actualConsDhwByHour     = [...rawNvsDhwCons];
     const actualConsStandbyByHour = [...rawNvsStandbyCons];
     const actualProdHeatByHour = [...rawNvsProd];
     const actualProdDhwByHour  = [...rawNvsDhwProd];
-    const actualTempByHour  = odinDataCache ? [...(odinDataCache.actual_room_temp || new Array(48).fill(null))] : new Array(48).fill(null);
+    const actualTempByHour  = odinDataCache ? [...(odinDataCache.actual_room_temp || new Array(72).fill(null))] : new Array(72).fill(null);
 
     // Live history overlay: Bereken incrementele deltas per modus (Heat vs DHW)
+    // In the 72-slot window, today occupies slots 24-47. The live history uses
+    // today's local hour (0-23); we write results at offset 24+h.
     if (history.timestamps && history.timestamps.length > 0) {
         const hConsHeat  = new Array(24).fill(0);
         const hConsDhw   = new Array(24).fill(0);
@@ -1650,7 +1795,7 @@ function updateOdinCharts() {
                         
                         const isRunning = history.bin_comp[i] === 1 || history.freq[i] > 0;
                         if (isRunning) {
-                            if (mode === 'Heating') hConsHeat[h] += delta;
+                            if (mode === 'Heating' || mode === 'Cooling') hConsHeat[h] += delta;
                             else if (mode === 'Hot Water' || mode === 'Legionella') hConsDhw[h] += delta;
                         }
                     }
@@ -1667,7 +1812,7 @@ function updateOdinCharts() {
                         
                         const isRunning = history.bin_comp[i] === 1 || history.freq[i] > 0;
                         if (isRunning) {
-                            if (mode === 'Heating') hProdHeat[h] += delta;
+                            if (mode === 'Heating' || mode === 'Cooling') hProdHeat[h] += delta;
                             else if (mode === 'Hot Water' || mode === 'Legionella') hProdDhw[h] += delta;
                         }
                     }
@@ -1679,21 +1824,22 @@ function updateOdinCharts() {
         const currentLocalHour = new Date().getHours();
         
         for (let h = 0; h < 24; h++) {
+            const idx = 24 + h; // today's slot in the 72-element window
             if (hHasData[h]) {
                 const isCurrentHour = (h === currentLocalHour);
-                const isNvsMissing = (rawNvsCons[h] === null);
+                const isNvsMissing = (rawNvsCons[idx] === null);
 
                 if (isCurrentHour || isNvsMissing) {
-                    actualConsHeatByHour[h]    = parseFloat(hConsHeat[h].toFixed(2));
-                    actualConsDhwByHour[h]     = parseFloat(hConsDhw[h].toFixed(2));
-                    actualConsStandbyByHour[h] = parseFloat(Math.max(0, hConsTotal[h] - hConsHeat[h] - hConsDhw[h]).toFixed(2));
-                    actualProdHeatByHour[h]    = parseFloat(hProdHeat[h].toFixed(2));
-                    actualProdDhwByHour[h]     = parseFloat(hProdDhw[h].toFixed(2));
+                    actualConsHeatByHour[idx]    = parseFloat(hConsHeat[h].toFixed(2));
+                    actualConsDhwByHour[idx]     = parseFloat(hConsDhw[h].toFixed(2));
+                    actualConsStandbyByHour[idx] = parseFloat(Math.max(0, hConsTotal[h] - hConsHeat[h] - hConsDhw[h]).toFixed(2));
+                    actualProdHeatByHour[idx]    = parseFloat(hProdHeat[h].toFixed(2));
+                    actualProdDhwByHour[idx]     = parseFloat(hProdDhw[h].toFixed(2));
                 }
             }
             if (firstTempByHour[h] !== null) {
-                if (h === currentLocalHour || actualTempByHour[h] === null) {
-                    actualTempByHour[h] = firstTempByHour[h];
+                if (h === currentLocalHour || actualTempByHour[idx] === null) {
+                    actualTempByHour[idx] = firstTempByHour[h];
                 }
             }
         }
@@ -1701,39 +1847,39 @@ function updateOdinCharts() {
         var currentLocalHour = new Date().getHours();
     }
 
-    for (let h = 0; h < 48; h++) {
-        if (h > currentLocalHour) {
-            actualConsHeatByHour[h] = null; actualConsDhwByHour[h] = null; actualConsStandbyByHour[h] = null;
-            actualProdHeatByHour[h] = null; actualProdDhwByHour[h] = null;
-        }
-        if (h > currentLocalHour) actualTempByHour[h] = null;
+    // Null-out future slots: tomorrow (slots 48-71) and the remainder of today (slots 24+currentLocalHour+1 .. 47)
+    const todayFutureStart = 24 + currentLocalHour + 1;
+    for (let s = todayFutureStart; s < 72; s++) {
+        actualConsHeatByHour[s] = null; actualConsDhwByHour[s] = null; actualConsStandbyByHour[s] = null;
+        actualProdHeatByHour[s] = null; actualProdDhwByHour[s] = null;
+        actualTempByHour[s] = null;
     }
 
-    const expCons       = odinDataCache ? odinDataCache.energy_consumption         : new Array(48).fill(null);
-    const expProd       = odinDataCache ? odinDataCache.heat_production            : new Array(48).fill(null);
-    const expCost       = odinDataCache ? odinDataCache.expected_cost              : new Array(48).fill(null);
-    const expTemp       = odinDataCache ? odinDataCache.expected_begin_temp        : new Array(48).fill(null);
-    const battDischarge = odinDataCache ? (odinDataCache.battery_discharge || new Array(48).fill(0)) : new Array(48).fill(0);
-    const prices        = odinDataCache ? (odinDataCache.prices || new Array(48).fill(null)) : new Array(48).fill(null);
-    const schedBase     = odinDataCache ? (odinDataCache.sched_base || new Array(48).fill(null)) : new Array(48).fill(null);
-    const schedMin      = odinDataCache ? (odinDataCache.sched_min  || new Array(48).fill(null)) : new Array(48).fill(null);
-    const schedMax      = odinDataCache ? (odinDataCache.sched_max  || new Array(48).fill(null)) : new Array(48).fill(null);
-    const weather       = odinDataCache ? (odinDataCache.weather    || new Array(48).fill(null)) : new Array(48).fill(null);
-    const solar         = odinDataCache ? (odinDataCache.solar      || new Array(48).fill(null)) : new Array(48).fill(null);
+    const expCons       = odinDataCache ? odinDataCache.energy_consumption         : new Array(72).fill(null);
+    const expProd       = odinDataCache ? odinDataCache.heat_production            : new Array(72).fill(null);
+    const expCost       = odinDataCache ? odinDataCache.expected_cost              : new Array(72).fill(null);
+    const expTemp       = odinDataCache ? odinDataCache.expected_begin_temp        : new Array(72).fill(null);
+    const battDischarge = odinDataCache ? (odinDataCache.battery_discharge || new Array(72).fill(0)) : new Array(72).fill(0);
+    const prices        = odinDataCache ? (odinDataCache.prices || new Array(72).fill(null)) : new Array(72).fill(null);
+    const schedBase     = odinDataCache ? (odinDataCache.sched_base || new Array(72).fill(null)) : new Array(72).fill(null);
+    const schedMin      = odinDataCache ? (odinDataCache.sched_min  || new Array(72).fill(null)) : new Array(72).fill(null);
+    const schedMax      = odinDataCache ? (odinDataCache.sched_max  || new Array(72).fill(null)) : new Array(72).fill(null);
+    const weather       = odinDataCache ? (odinDataCache.weather    || new Array(72).fill(null)) : new Array(72).fill(null);
+    const solar         = odinDataCache ? (odinDataCache.solar      || new Array(72).fill(null)) : new Array(72).fill(null);
     
     const pricesKwh     = prices.map(p => p !== null ? parseFloat((p).toFixed(5)) : null);
 
     // Initialize arrays for costs and consumption splits
-    const actualCost = new Array(48).fill(null);
-    const expConsGrid = new Array(48).fill(null);
-    const expConsSolar = new Array(48).fill(null);
-    const expProdSolar = new Array(48).fill(null);
+    const actualCost = new Array(72).fill(null);
+    const expConsGrid = new Array(72).fill(null);
+    const expConsSolar = new Array(72).fill(null);
+    const expProdSolar = new Array(72).fill(null);
     
     const solarKwp = odinDataCache?.last_run?.used_solar_kwp || 0;
     const solarCorrection = odinDataCache?.last_run?.used_solar_correction || 1.0;
 
     // Single loop to process all hourly data
-    for (let h = 0; h < 48; h++) {
+    for (let h = 0; h < 72; h++) {
         const sol_wm2 = solar[h] || 0; 
         const expected_solar_kwh = (sol_wm2 / 1000) * solarKwp * solarCorrection;
         expProdSolar[h] = parseFloat(expected_solar_kwh.toFixed(2));
@@ -1787,11 +1933,11 @@ function updateOdinCharts() {
     odinPriceChart.update('none');
 
     // Bar charts ignore x min/max from axis config after data update — re-apply zoom.
-    // Without this, bar charts reset to full 0-47 range on every data refresh,
-    // causing index 24 (hour 0 today) to appear off-screen until the user scrolls.
+    // Without this, bar charts reset to full 0-71 range on every data refresh.
+    // Default view: today (slots 24-47).
     if (!odinZoomed) {
         [odinConsChart, odinProdChart, odinCostChart, odinBattChart].forEach(c => {
-            if (c) c.zoomScale('x', {min: -0.5, max: 23.5}, 'none');
+            if (c) c.zoomScale('x', {min: 23.5, max: 47.5}, 'none');
         });
     }
 
@@ -1828,11 +1974,11 @@ function updateOdinCharts() {
         updateRunStatsUI(rs);
     }
 
-    // Auto-focus to today (index 24-47) unless user has manually zoomed/panned
+    // Auto-focus to today (slots 24-47) unless user has manually zoomed/panned
     if (!odinZoomed) {
         [odinConsChart, odinProdChart, odinCostChart, odinTempChart, 
         odinBattChart, odinPriceChart, odinWeatherChart].forEach(c => {
-            if (c) c.zoomScale('x', {min: -0.5, max: 23.5}, 'none');
+            if (c) c.zoomScale('x', {min: 23.5, max: 47.5}, 'none');
         });
     }
 }
@@ -2028,26 +2174,53 @@ function updateDot(id, action) {
   }
 }
 
+let physTabUserToggled = false;
+
+function togglePhysicsTab(mode) {
+  physTabUserToggled = true;
+  
+  if (mode === 'cool') {
+    document.getElementById('phys-group-heat').style.display = 'none';
+    document.getElementById('phys-group-cool').style.display = 'block';
+    document.getElementById('tab-btn-heat').classList.remove('active-heat');
+    document.getElementById('tab-btn-cool').classList.add('active-cool');
+  } else {
+    document.getElementById('phys-group-heat').style.display = 'block';
+    document.getElementById('phys-group-cool').style.display = 'none';
+    document.getElementById('tab-btn-heat').classList.add('active-heat');
+    document.getElementById('tab-btn-cool').classList.remove('active-cool');
+  }
+}
+
 function toggleCoolingUI() {
   // --- Zone 1 ---
   const opModeZ1 = document.getElementById('sel-z1mode')?.selectedIndex;
-  const vModeZ1 = document.getElementById('sel-z1-vmode')?.value;
-  const z1IsCooling = (opModeZ1 === 3 || opModeZ1 === 4 || opModeZ1 === 6) || (vModeZ1 === 'cool');
+  const z1IsCooling = (opModeZ1 === 3 || opModeZ1 === 4 || opModeZ1 === 6);
   
   const h1 = document.getElementById('heat-settings-z1');
   if (h1) h1.style.display = z1IsCooling ? 'none' : 'block';
 
   // --- Zone 2 ---
   const opModeZ2 = document.getElementById('sel-z2mode')?.selectedIndex;
-  const vModeZ2 = document.getElementById('sel-z2-vmode')?.value;
-  const z2IsCooling = (opModeZ2 === 3 || opModeZ2 === 4 || opModeZ2 === 6) || (vModeZ2 === 'cool');
+  const z2IsCooling = (opModeZ2 === 3 || opModeZ2 === 4 || opModeZ2 === 6);
   
   const h2 = document.getElementById('heat-settings-z2');  
   if (h2) h2.style.display = z2IsCooling ? 'none' : 'block';
   
-  // --- Global Cooling ---
+  // --- Global Cooling (voor Auto Adaptive UI) ---
+  const isCoolingMode = z1IsCooling || z2IsCooling;
   const cGlobal = document.getElementById('cool-settings-z1');
-  if (cGlobal) cGlobal.style.display = (z1IsCooling || z2IsCooling) ? 'block' : 'none';
+  if (cGlobal) cGlobal.style.display = isCoolingMode ? 'block' : 'none';
+
+  if (!physTabUserToggled) {
+    if (isCoolingMode) {
+      togglePhysicsTab('cool');
+      physTabUserToggled = false;
+    } else {
+      togglePhysicsTab('heat');
+      physTabUserToggled = false;
+    }
+  }
 }
 
 function render(d) {
@@ -2099,6 +2272,11 @@ function render(d) {
   if (d.pred_sc_time_lim) { LIMITS['psc-win'].min = d.pred_sc_time_lim.min; LIMITS['psc-win'].max = d.pred_sc_time_lim.max; LIMITS['psc-win'].step = d.pred_sc_time_lim.step; }
   if (d.pred_sc_delta_lim) { LIMITS['psc-delta'].min = d.pred_sc_delta_lim.min; LIMITS['psc-delta'].max = d.pred_sc_delta_lim.max; LIMITS['psc-delta'].step = d.pred_sc_delta_lim.step; }
 
+  if (d.raw_cool_produced_lim) { LIMITS['raw-cool-prod'].min = d.raw_cool_produced_lim.min; LIMITS['raw-cool-prod'].max = d.raw_cool_produced_lim.max; LIMITS['raw-cool-prod'].step = d.raw_cool_produced_lim.step; }
+  if (d.raw_cool_elec_consumed_lim) { LIMITS['raw-cool-elec'].min = d.raw_cool_elec_consumed_lim.min; LIMITS['raw-cool-elec'].max = d.raw_cool_elec_consumed_lim.max; LIMITS['raw-cool-elec'].step = d.raw_cool_elec_consumed_lim.step; }
+  if (d.raw_cool_runtime_hours_lim) { LIMITS['raw-cool-run'].min = d.raw_cool_runtime_hours_lim.min; LIMITS['raw-cool-run'].max = d.raw_cool_runtime_hours_lim.max; LIMITS['raw-cool-run'].step = d.raw_cool_runtime_hours_lim.step; }
+  if (d.raw_cool_avg_outside_temp_lim) { LIMITS['raw-cool-out'].min = d.raw_cool_avg_outside_temp_lim.min; LIMITS['raw-cool-out'].max = d.raw_cool_avg_outside_temp_lim.max; LIMITS['raw-cool-out'].step = d.raw_cool_avg_outside_temp_lim.step; }
+
   if (d.hysteresis_z1_lim) {
     const el = document.getElementById('z1-hyst');
     if(el) { el.min = d.hysteresis_z1_lim.min; el.max = d.hysteresis_z1_lim.max; el.step = d.hysteresis_z1_lim.step; }
@@ -2139,6 +2317,7 @@ function render(d) {
   setText('dhw-prod',     fmt1(d.dhw_delivered) + ' kWh');
   seedPending('dhw-sp', d.dhw_flow_temp_target);
   setToggle('sw-fdhw', d.force_dhw); 
+  setToggle('sw-regular-dhw', d.sw_regular_dhw);
 
   setText('perf-h-in',  fmt2(d.heating_consumed));
   setText('perf-h-out', fmt2(d.heating_produced));
@@ -2201,6 +2380,7 @@ function render(d) {
   setSelect('sel-z2mode', d.operating_mode_z2);
   setSelect('sel-z1ts',   d.temp_sensor_source_z1);
   setSelect('sel-z2ts',   d.temp_sensor_source_z2);
+  setSelect('sel-odin-dhw-mode', d.solver_dhw_mode);
   
   updateDot('dot-z1', d.z1_action);
   updateDot('dot-room-z1', d.room_z1_action);
@@ -2209,7 +2389,7 @@ function render(d) {
 
   if (d.cool_smart_z1_lim) { LIMITS['cool-start-z1'].min = d.cool_smart_z1_lim.min; LIMITS['cool-start-z1'].max = d.cool_smart_z1_lim.max; LIMITS['cool-start-z1'].step = d.cool_smart_z1_lim.step || 0.5; }
   if (d.min_cool_flow_z1_lim) { LIMITS['cool-min-z1'].min = d.min_cool_flow_z1_lim.min; LIMITS['cool-min-z1'].max = d.min_cool_flow_z1_lim.max; LIMITS['cool-min-z1'].step = d.min_cool_flow_z1_lim.step || 0.5; }
-  
+
   seedPending('cool-start-z1', d.cooling_smart_start_z1);
   seedPending('cool-min-z1', d.minimum_cooling_flow_z1);
   seedPending('dhw-thresh', d.dhw_start_threshold);
@@ -2279,6 +2459,11 @@ function render(d) {
   seedPending('batt-soc', d.battery_soc_kwh);
   seedPending('batt-max-dis', d.battery_max_discharge_kw);
 
+  seedPending('raw-cool-prod', d.raw_cool_produced);
+  seedPending('raw-cool-elec', d.raw_cool_elec_consumed);
+  seedPending('raw-cool-run',  d.raw_cool_runtime_hours);
+  seedPending('raw-cool-out',  d.raw_cool_avg_outside_temp);
+
   const isRunning = d.status_compressor;
   const isFlowing = (d.flow_rate && d.flow_rate > 2) || d.status_water_pump;
   
@@ -2301,6 +2486,23 @@ function render(d) {
 
   const elPerfDhw = document.getElementById('icon-perf-dhw');
   if(elPerfDhw) elPerfDhw.classList.toggle('anim-pulse', isRunning && isDHW);
+
+  // --- SERVER CONTROL ---
+  if (d.server_control_enabled !== undefined) {
+    const enableCb = document.getElementById('sw-sc-enable');
+    if (enableCb && document.activeElement !== enableCb) enableCb.checked = d.server_control_enabled;
+    const section = document.getElementById('sc-prohibit-section');
+    if (section) section.classList.toggle('disabled-box', !d.server_control_enabled);
+  }
+  if (d.server_control_prohibit_dhw !== undefined)       setToggle('sw-sc-prohibit-dhw',    d.server_control_prohibit_dhw);
+  if (d.server_control_prohibit_z1_heating !== undefined) setToggle('sw-sc-prohibit-z1-heat', d.server_control_prohibit_z1_heating);
+  if (d.server_control_prohibit_z1_cooling !== undefined) setToggle('sw-sc-prohibit-z1-cool', d.server_control_prohibit_z1_cooling);
+  if (d.server_control_prohibit_z2_heating !== undefined) setToggle('sw-sc-prohibit-z2-heat', d.server_control_prohibit_z2_heating);
+  if (d.server_control_prohibit_z2_cooling !== undefined) setToggle('sw-sc-prohibit-z2-cool', d.server_control_prohibit_z2_cooling);
+
+  // Show Z2 prohibit rows only when zone 2 is present
+  const scZ2 = document.getElementById('sc-z2-prohibits');
+  if (scZ2) scZ2.style.display = isZ2 ? 'block' : 'none';
 
   setText('disp-ver', d.latest_version || '—');
   setText('lastUpdate', formatUptime(d._uptime_ms));
@@ -2352,6 +2554,18 @@ async function apiPost(payload) {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
   });
   if (!res.ok) throw new Error('HTTP ' + res.status);
+}
+
+async function onServerControlToggle(val) {
+  // Update the greyed-out state of the prohibit section immediately
+  const section = document.getElementById('sc-prohibit-section');
+  if (section) {
+    section.classList.toggle('disabled-box', !val);
+  }
+  try {
+    await apiPost({ key: 'server_control_enabled', value: val ? 1 : 0 });
+    showToast('✓ Server Control ' + (val ? 'enabled' : 'disabled'));
+  } catch(e) { showToast('✗ ' + e.message, true); }
 }
 
 async function sendSwitch(key, val) {
@@ -2489,11 +2703,16 @@ async function sendPhysics(btn) {
   btn.classList.add('sending');
   let c = 0;
   try {
-    const physicsKeys = ['raw-heat','raw-elec','raw-run','raw-out','raw-room','raw-delta','raw-hl-tm','raw-solar-factor','batt-soc','batt-max-dis'];
-    const physicsMap = { 'raw-heat': 'raw_heat_produced', 'raw-elec': 'raw_elec_consumed', 'raw-run': 'raw_runtime_hours',
+    const physicsKeys = ['raw-heat','raw-elec','raw-run','raw-out','raw-room','raw-delta','raw-hl-tm','raw-solar-factor','batt-soc','batt-max-dis', 'raw-cool-prod', 'raw-cool-elec', 'raw-cool-run', 'raw-cool-out'];
+    
+    const physicsMap = { 
+      'raw-heat': 'raw_heat_produced', 'raw-elec': 'raw_elec_consumed', 'raw-run': 'raw_runtime_hours',
       'raw-out': 'raw_avg_outside_temp', 'raw-room': 'raw_avg_room_temp', 'raw-delta': 'raw_delta_room_temp',
       'raw-hl-tm': 'raw_hl_tm_product', 'raw-solar-factor': 'raw_solar_factor',
-      'batt-soc': 'battery_soc_kwh', 'batt-max-dis': 'battery_max_discharge_kw' };
+      'batt-soc': 'battery_soc_kwh', 'batt-max-dis': 'battery_max_discharge_kw',
+      'raw-cool-prod': 'raw_cool_produced', 'raw-cool-elec': 'raw_cool_elec_consumed', 
+      'raw-cool-run': 'raw_cool_runtime_hours', 'raw-cool-out': 'raw_cool_avg_outside_temp'
+    };
     for (const k of physicsKeys) {
       if (hasChanged(k)) {
         await apiPost({ key: physicsMap[k], value: pending[k] });
@@ -2520,12 +2739,28 @@ async function runOdinSolver() {
         if (!isNaN(parsed) && parsed >= 0 && parsed <= 23) solveHour = parsed;
     }
 
+    const elMode = document.getElementById('sel-z1mode');
+    const opModeZ1 = elMode ? elMode.selectedIndex : -1;
+    
+    let selectedMode = 0; 
+
+    // Index 3, 4 en 6 are cooling modes (Target, Flow, Curve)
+    if (opModeZ1 === 3 || opModeZ1 === 4 || opModeZ1 === 6) {
+        selectedMode = 3; // COOL_ON
+    } else if (opModeZ1 === 0 || opModeZ1 === 1 || opModeZ1 === 2 || opModeZ1 === 5) {
+        selectedMode = 2; // HEAT_ON
+    }
+
     const payload = {
         params: {
             heat_produced: pending['raw-heat'] || latestState.raw_heat_produced || 0,
             elec_consumed: pending['raw-elec'] || latestState.raw_elec_consumed || 0,
             runtime_hours: pending['raw-run'] || latestState.raw_runtime_hours || 0,
             avg_outside_temp: pending['raw-out'] || latestState.raw_avg_outside_temp || 7,
+            cool_produced: pending['raw-cool-prod'] || latestState.raw_cool_produced || 0,
+            cool_elec_consumed: pending['raw-cool-elec'] || latestState.raw_cool_elec_consumed || 0,
+            cool_runtime_hours: pending['raw-cool-run'] || latestState.raw_cool_runtime_hours || 0,
+            cool_avg_outside_temp: pending['raw-cool-out'] || latestState.raw_cool_avg_outside_temp || 20,
             avg_room_temp: pending['raw-room'] || latestState.raw_avg_room_temp || 20,
             delta_room_temp: pending['raw-delta'] || latestState.raw_delta_room_temp || 0,
             hl_tm_product: pending['raw-hl-tm'] ?? latestState.raw_hl_tm_product ?? 0.0,
@@ -2539,7 +2774,7 @@ async function runOdinSolver() {
             dhw_drop: latestState.dhw_flow_temp_drop || 0,
             dhw_start_threshold: pending['dhw-thresh'] ?? latestState.dhw_start_threshold ?? 0.0,
             // 0=OFF,1=DHW_ON,2=HEAT_ON,3=COOL_ON,5=FROST_PROTECT,6=LEGIONELLA,255=UNAVAILABLE
-            current_operation_mode: latestState.operation_mode ?? 0
+            current_operation_mode: selectedMode
         }
     };
 
@@ -2555,38 +2790,40 @@ async function runOdinSolver() {
         if (data.success) {
           if (!odinDataCache) odinDataCache = {};
             
-            // Safely inject the 48h solver data into the cache directly
-            const inject48 = (key, new48, preserveCurrentHour = false) => {
-                if (!odinDataCache[key] || odinDataCache[key].length !== 48) {
-                    odinDataCache[key] = new Array(48).fill(null);
+            // Inject the 48h solver response into today+tomorrow slots (24-71) of the 72-slot cache.
+            // slot 24+i = today/tomorrow hour i from the solver's perspective.
+            const inject72 = (key, new48, preserveCurrentHour = false) => {
+                if (!odinDataCache[key] || odinDataCache[key].length !== 72) {
+                    odinDataCache[key] = new Array(72).fill(null);
                 }
                 if (new48 && new48.length >= 48) {
                     for (let i = 0; i < 48; i++) {
+                        const slot = 24 + i; // map solver index into 72-slot window
                         let isCurrent = (i === solveHour);
                         
                         // Protect the current hour from jumping mid-hour if requested
-                        if (preserveCurrentHour && isCurrent && odinDataCache[key][i] !== null) continue;
+                        if (preserveCurrentHour && isCurrent && odinDataCache[key][slot] !== null) continue;
 
                         if (new48[i] !== null && new48[i] !== undefined) {
-                            odinDataCache[key][i] = new48[i];
+                            odinDataCache[key][slot] = new48[i];
                         }
                     }
                 }
             };
 
-            inject48('expected_end_temp', data.expected_end_temp);
-            inject48('expected_begin_temp', data.expected_begin_temp, true); // true = lock current hour
-            inject48('operation_mode', data.operation_mode, true);
-            inject48('prices', data.prices);
-            inject48('sched_base', data.sched_base);
-            inject48('sched_min', data.sched_min);
-            inject48('sched_max', data.sched_max);
-            inject48('weather', data.weather);
-            inject48('solar', data.solar);
-            inject48('energy_consumption', data.energy_consumption);
-            inject48('heat_production', data.heat_production);
-            inject48('expected_cost', data.expected_cost);
-            inject48('battery_discharge', data.battery_discharge); 
+            inject72('expected_end_temp', data.expected_end_temp);
+            inject72('expected_begin_temp', data.expected_begin_temp, true); // true = lock current hour
+            inject72('operation_mode', data.operation_mode, true);
+            inject72('prices', data.prices);
+            inject72('sched_base', data.sched_base);
+            inject72('sched_min', data.sched_min);
+            inject72('sched_max', data.sched_max);
+            inject72('weather', data.weather);
+            inject72('solar', data.solar);
+            inject72('energy_consumption', data.energy_consumption);
+            inject72('heat_production', data.heat_production);
+            inject72('expected_cost', data.expected_cost);
+            inject72('battery_discharge', data.battery_discharge); 
 
             odinDataCache.last_run = {
                 execution_ms:    data.execution_ms                 || 0,
@@ -2843,7 +3080,7 @@ function resetOdinZoom() {
     odinZoomed = false;
     [odinConsChart, odinProdChart, odinCostChart, odinTempChart, 
      odinBattChart, odinPriceChart, odinWeatherChart].forEach(c => {
-        if (c) c.zoomScale('x', {min: -0.5, max: 23.5}, 'none');
+        if (c) c.zoomScale('x', {min: 23.5, max: 47.5}, 'none');
     });
     document.getElementById('btn-reset-zoom-odin').style.display = 'none';
 }
@@ -2926,6 +3163,82 @@ document.addEventListener('touchstart', function(e) {
   }
 }, { passive: true });
 
+function initSettingsDragAndDrop() {
+  const container = document.getElementById('settings-card-container');
+  if (!container) return;
+
+  // 1. Restore the saved order from LocalStorage
+  const savedOrder = JSON.parse(localStorage.getItem('settingsCardOrder'));
+  if (savedOrder && Array.isArray(savedOrder)) {
+    savedOrder.forEach(id => {
+      const el = document.getElementById(id);
+      // Append moves the element to the end of the container, reordering them
+      if (el) container.appendChild(el); 
+    });
+  }
+
+  // 2. Setup Drag and Drop event listeners
+  const cards = container.querySelectorAll('.ctrl-card');
+  let draggedCard = null;
+
+  cards.forEach(card => {
+    const title = card.querySelector('.section-title');
+    
+    // Only allow dragging from the title area to protect inputs/sliders
+    if (title) {
+      const makeDraggable = () => card.setAttribute('draggable', 'true');
+      const makeUndraggable = () => card.removeAttribute('draggable');
+      
+      title.addEventListener('mouseenter', makeDraggable);
+      title.addEventListener('mouseleave', makeUndraggable);
+      title.addEventListener('touchstart', makeDraggable, {passive: true});
+      title.addEventListener('touchend', makeUndraggable, {passive: true});
+    }
+
+    card.addEventListener('dragstart', (e) => {
+      draggedCard = card;
+      // setTimeout ensures the drag image captures the normal state before applying transparency
+      setTimeout(() => card.classList.add('dragging'), 0);
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', card.id);
+    });
+
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      draggedCard = null;
+      card.removeAttribute('draggable');
+      
+      // Save the new DOM order to LocalStorage
+      const newOrder = Array.from(container.querySelectorAll('.ctrl-card')).map(c => c.id);
+      localStorage.setItem('settingsCardOrder', JSON.stringify(newOrder));
+    });
+
+    card.addEventListener('dragover', (e) => {
+      e.preventDefault(); // Required to allow dropping
+      if (!draggedCard || card === draggedCard) return;
+
+      const rect = card.getBoundingClientRect();
+      const isGridMulticolumn = window.innerWidth > 768; 
+
+      // Determine whether to insert before or after the hovered card
+      let insertBefore = false;
+      if (isGridMulticolumn) {
+        // Multi-column grid logic (Desktop)
+        insertBefore = e.clientX < rect.left + rect.width / 2;
+      } else {
+        // Single column stack logic (Mobile)
+        insertBefore = e.clientY < rect.top + rect.height / 2;
+      }
+
+      if (insertBefore) {
+        container.insertBefore(draggedCard, card);
+      } else {
+        container.insertBefore(draggedCard, card.nextSibling);
+      }
+    });
+  });
+}
+
 (function loadChartJS() {
   const s = document.createElement('script');
   s.src = '/js/chart.js';
@@ -2938,6 +3251,7 @@ document.addEventListener('touchstart', function(e) {
       
       z.onload = async () => {
         initCharts(); 
+        initSettingsDragAndDrop();
         await loadServerHistory(); 
         fetchState(); 
         startLog(); 

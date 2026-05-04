@@ -24,6 +24,7 @@ substitutions:
   version: ESP versie
   led_brightness: Led helderheid
   led_switch: Led schakelaar
+  heatpump_switch_regular_dhw: Normaal sww
   heatpump_switch_force_dhw: Forceer sww
   heatpump_switch_power_mode: Warmtepomp
   heatpump_switch_holiday: Vakantie modus
@@ -167,6 +168,10 @@ substitutions:
   solver_kwh_meter_feedback_source: "Bron energiemeter"
   solver_kwh_meter_option_internal: "Interne energiemeter"
   solver_kwh_meter_feedback: "kWh-meter terugkoppeling"
+
+  solver_dhw_mode: Solver tapwatermodus
+  solver_dhw_mode_option_regular: Normaal
+  solver_dhw_mode_option_forced: Geforceerd
 
   asgard_vt_temp_sensor_source: 'Bron Virtuele Thermostaat'
 

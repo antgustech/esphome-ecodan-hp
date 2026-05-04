@@ -64,8 +64,9 @@ asgard_dashboard:
   # ── Selects 
   sel_heating_system_type_id:        heating_system_type 
   sel_room_temp_source_z1_id:        temperature_feedback_source_z1
-  operating_mode_z1_id: heatpump_select_operating_mode
-  sel_temp_source_z1_id: asgard_vt_temp_sensor_source_z1
+  operating_mode_z1_id:              heatpump_select_operating_mode
+  sel_temp_source_z1_id:             asgard_vt_temp_sensor_source_z1
+  solver_dhw_mode_id:                solver_dhw_mode
  
   # ── Numbers 
   num_aa_setpoint_bias_id:           auto_adaptive_setpoint_bias
@@ -86,6 +87,12 @@ asgard_dashboard:
 
 # ── Solver & Physics
   sw_show_solver_tab_id:             sw_show_solver_tab
+
+  # ── Server Control
+  sw_server_control_id:              heatpump_switch_server_control_mode
+  sw_sc_prohibit_dhw_id:             heatpump_switch_server_control_prohibit_dhw
+  sw_sc_prohibit_z1_heating_id:      heatpump_switch_server_control_prohibit_z1_heating
+  sw_sc_prohibit_z1_cooling_id:      heatpump_switch_server_control_prohibit_z1_cooling
   sw_use_solver_id:                  sw_use_solver
   bin_solver_connected_id:           bin_solver_connected
   txt_solver_ip_id:                  txt_solver_ip
@@ -99,6 +106,11 @@ asgard_dashboard:
   num_battery_soc_kwh_id:            num_battery_soc_kwh
   num_battery_max_discharge_kw_id:   num_battery_max_discharge_kw
   num_raw_solar_factor_id: num_raw_solar_factor
+
+  num_raw_cool_produced_id:          num_raw_cool_produced
+  num_raw_cool_elec_consumed_id:     num_raw_cool_elec_consumed
+  num_raw_cool_runtime_hours_id:     num_raw_cool_runtime_hours
+  num_raw_cool_avg_outside_temp_id:  num_raw_cool_avg_outside_temp
 
   solver_kwh_meter_feedback_source_id: solver_kwh_meter_feedback_source
   solver_kwh_meter_feedback_id: solver_kwh_meter_feedback

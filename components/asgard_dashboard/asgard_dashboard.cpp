@@ -1,5 +1,6 @@
 #include "asgard_dashboard.h"
 #include "dashboard_html.h"
+#include "setup_html.h"
 #include "dashboard_js.h"
 #include "esphome/core/log.h"
 #include "esphome/core/application.h"
@@ -98,6 +99,7 @@ bool EcodanDashboard::canHandle(AsyncWebServerRequest *request) const {
   char url_buf[AsyncWebServerRequest::URL_BUF_SIZE];
   auto url = request->url_to(url_buf);
   return (url == "/dashboard" || url == "/dashboard/" ||
+          url == "/dashboard/setup" ||
           url == "/dashboard/state" || url == "/dashboard/set" ||
           url == "/dashboard/history" || url == "/dashboard/odin" ||
           url == "/js/chart.js" || url == "/js/hammer.js" || url == "/js/zoom.js"); 
@@ -108,6 +110,7 @@ void EcodanDashboard::handleRequest(AsyncWebServerRequest *request) {
   auto url = request->url_to(url_buf);
   
   if      (url == "/dashboard" || url == "/dashboard/") handle_root_(request);
+  else if (url == "/dashboard/setup")                   handle_setup_(request);
   else if (url == "/dashboard/state")                   handle_state_(request);
   else if (url == "/dashboard/set")                     handle_set_(request);
   else if (url == "/dashboard/history")                 handle_history_request_(request);
@@ -155,6 +158,10 @@ void EcodanDashboard::send_chunked_(AsyncWebServerRequest *request, const char *
 
 void EcodanDashboard::handle_root_(AsyncWebServerRequest *request) {
   send_chunked_(request, "text/html", DASHBOARD_HTML_GZ, DASHBOARD_HTML_GZ_LEN, "no-cache");
+}
+
+void EcodanDashboard::handle_setup_(AsyncWebServerRequest *request) {
+  send_chunked_(request, "text/html", SETUP_HTML_GZ, SETUP_HTML_GZ_LEN, "no-cache");
 }
 
 void EcodanDashboard::handle_js_(AsyncWebServerRequest *request) {
@@ -301,6 +308,14 @@ void EcodanDashboard::dispatch_set_(const std::string &key, const std::string &s
   if (key == "use_dynamic_cost_solver")       { doSwitch(sw_use_solver_);    return; }
   if (key == "show_solver_tab_enabled")       { doSwitch(sw_show_solver_tab_); this->odin_nvs_dirty_ = true; return; }
 
+  // Server control
+  if (key == "server_control_enabled")             { doSwitch(sw_server_control_);          return; }
+  if (key == "server_control_prohibit_dhw")        { doSwitch(sw_sc_prohibit_dhw_);         return; }
+  if (key == "server_control_prohibit_z1_heating") { doSwitch(sw_sc_prohibit_z1_heating_);  return; }
+  if (key == "server_control_prohibit_z1_cooling") { doSwitch(sw_sc_prohibit_z1_cooling_);  return; }
+  if (key == "server_control_prohibit_z2_heating") { doSwitch(sw_sc_prohibit_z2_heating_);  return; }
+  if (key == "server_control_prohibit_z2_cooling") { doSwitch(sw_sc_prohibit_z2_cooling_);  return; }
+
   auto doSelect = [&](select::Select *sel) {
     if (!sel) { ESP_LOGW(TAG, "Select not configured"); return; }
     auto call = sel->make_call();
@@ -319,6 +334,7 @@ void EcodanDashboard::dispatch_set_(const std::string &key, const std::string &s
   if (key == "operating_mode_z2")     { doSelect(sel_operating_mode_z2_); return; }
   if (key == "temp_sensor_source_z1") { doSelect(sel_temp_source_z1_); return; } 
   if (key == "temp_sensor_source_z2") { doSelect(sel_temp_source_z2_); return; } 
+  if (key == "solver_dhw_mode")       { doSelect(solver_dhw_mode_); return; }
 
   auto doNumber = [&](number::Number *n) {
     if (!n) { ESP_LOGW(TAG, "Number not configured"); return; }
@@ -347,6 +363,11 @@ void EcodanDashboard::dispatch_set_(const std::string &key, const std::string &s
   if (key == "battery_soc_kwh") { doNumber(num_battery_soc_kwh_); return; }
   if (key == "battery_max_discharge_kw") { doNumber(num_battery_max_discharge_kw_); return; }
   if (key == "dhw_start_threshold") { doNumber(num_dhw_start_threshold_); return; }
+
+  if (key == "raw_cool_produced") { doNumber(num_raw_cool_produced_); return; }
+  if (key == "raw_cool_elec_consumed") { doNumber(num_raw_cool_elec_consumed_); return; }
+  if (key == "raw_cool_runtime_hours") { doNumber(num_raw_cool_runtime_hours_); return; }
+  if (key == "raw_cool_avg_outside_temp") { doNumber(num_raw_cool_avg_outside_temp_); return; }
 
   if (key == "predictive_short_cycle_high_delta_time_window")    { doNumber(pred_sc_time_);    return; }
   if (key == "predictive_short_cycle_high_delta_threshold")    { doNumber(pred_sc_delta_);    return; }
@@ -461,6 +482,14 @@ void EcodanDashboard::update_snapshot_() {
   current_snapshot_.sw_use_solver = get_sw(sw_use_solver_);
   current_snapshot_.sw_show_solver_tab = get_sw(sw_show_solver_tab_);
 
+  // Server control
+  current_snapshot_.sw_server_control        = get_sw(sw_server_control_);
+  current_snapshot_.sw_sc_prohibit_dhw       = get_sw(sw_sc_prohibit_dhw_);
+  current_snapshot_.sw_sc_prohibit_z1_heating = get_sw(sw_sc_prohibit_z1_heating_);
+  current_snapshot_.sw_sc_prohibit_z1_cooling = get_sw(sw_sc_prohibit_z1_cooling_);
+  current_snapshot_.sw_sc_prohibit_z2_heating = get_sw(sw_sc_prohibit_z2_heating_);
+  current_snapshot_.sw_sc_prohibit_z2_cooling = get_sw(sw_sc_prohibit_z2_cooling_);
+
   // Populate Floats
   current_snapshot_.hp_feed_temp = get_f(hp_feed_temp_);
   current_snapshot_.hp_return_temp = get_f(hp_return_temp_);
@@ -481,6 +510,7 @@ void EcodanDashboard::update_snapshot_() {
   current_snapshot_.dhw_consumed = get_f(dhw_consumed_);
   current_snapshot_.dhw_delivered = get_f(dhw_delivered_);
   current_snapshot_.dhw_cop = get_f(dhw_cop_);
+  current_snapshot_.solver_dhw_mode = get_sel(solver_dhw_mode_);
 
   current_snapshot_.heating_consumed = get_f(heating_consumed_);
   current_snapshot_.heating_produced = get_f(heating_produced_);
@@ -516,6 +546,11 @@ void EcodanDashboard::update_snapshot_() {
   get_n(num_raw_delta_room_temp_, current_snapshot_.num_raw_delta_room_temp);
   get_n(num_raw_hl_tm_product_, current_snapshot_.num_raw_hl_tm_product);
   get_n(num_raw_solar_factor_, current_snapshot_.num_raw_solar_factor);
+
+  get_n(num_raw_cool_produced_, current_snapshot_.num_raw_cool_produced);
+  get_n(num_raw_cool_elec_consumed_, current_snapshot_.num_raw_cool_elec_consumed);
+  get_n(num_raw_cool_runtime_hours_, current_snapshot_.num_raw_cool_runtime_hours);
+  get_n(num_raw_cool_avg_outside_temp_, current_snapshot_.num_raw_cool_avg_outside_temp);
 
   get_n(num_battery_soc_kwh_, current_snapshot_.num_battery_soc_kwh);
   get_n(num_battery_max_discharge_kw_, current_snapshot_.num_battery_max_discharge_kw);
@@ -745,6 +780,15 @@ void EcodanDashboard::handle_state_(AsyncWebServerRequest *request) {
   p_b("use_dynamic_cost_solver", snap.sw_use_solver);
   p_b("show_solver_tab",         snap.sw_show_solver_tab);
   p_b("solver_connected",        snap.bin_solver_connected);
+  p_sel("solver_dhw_mode", snap.solver_dhw_mode);
+
+  // --- Server control ---
+  p_b("server_control_enabled",          snap.sw_server_control);
+  p_b("server_control_prohibit_dhw",     snap.sw_sc_prohibit_dhw);
+  p_b("server_control_prohibit_z1_heating", snap.sw_sc_prohibit_z1_heating);
+  p_b("server_control_prohibit_z1_cooling", snap.sw_sc_prohibit_z1_cooling);
+  p_b("server_control_prohibit_z2_heating", snap.sw_sc_prohibit_z2_heating);
+  p_b("server_control_prohibit_z2_cooling", snap.sw_sc_prohibit_z2_cooling);
 
   // --- Raw physics EMA numbers ---
   p_n("raw_heat_produced",      snap.num_raw_heat_produced.val);
@@ -768,6 +812,16 @@ void EcodanDashboard::handle_state_(AsyncWebServerRequest *request) {
   p_lim("battery_max_discharge_kw_lim", snap.num_battery_max_discharge_kw);
   p_n("dhw_start_threshold",    snap.num_dhw_start_threshold.val);
   p_lim("dhw_start_threshold_lim", snap.num_dhw_start_threshold);
+
+  p_n("raw_cool_produced",      snap.num_raw_cool_produced.val);
+  p_lim("raw_cool_produced_lim",snap.num_raw_cool_produced);
+  p_n("raw_cool_elec_consumed", snap.num_raw_cool_elec_consumed.val);
+  p_lim("raw_cool_elec_consumed_lim",snap.num_raw_cool_elec_consumed);
+  p_n("raw_cool_runtime_hours", snap.num_raw_cool_runtime_hours.val);
+  p_lim("raw_cool_runtime_hours_lim",snap.num_raw_cool_runtime_hours);
+  p_n("raw_cool_avg_outside_temp",   snap.num_raw_cool_avg_outside_temp.val);
+  p_lim("raw_cool_avg_outside_temp_lim", snap.num_raw_cool_avg_outside_temp);
+  
   if (!flush()) { httpd_resp_send_chunk(req, nullptr, 0); return; }
 
   // --- String fields (solver IP, version) — escape inline into buf ---
@@ -974,19 +1028,40 @@ void EcodanDashboard::handle_history_request_(AsyncWebServerRequest *request) {
 // ---------------------------------------------------------------------------
 static const char* NVS_ODIN_NS = "odin_cache";
 
-void EcodanDashboard::update_actual_data(int hour, float actual_cons_kwh, float actual_prod_kwh, float dhw_cons, float dhw_prod, float actual_room_temp, float standby_cons) {
-    // Write directly to the current hour (0-23 represents Today)
-    int target_idx = hour;
+void EcodanDashboard::update_actual_data(int hour, int day, float actual_cons_kwh, float actual_prod_kwh, float dhw_cons, float dhw_prod, float actual_room_temp, float standby_cons) {
+    // hour is last_hour (0-23, the hour just completed).
+    // In the 72-slot window: 0-23=yesterday, 24-47=today, 48-71=tomorrow.
+    //   stored_day == current ecodan day → shift has happened → write to slot 23
+    //   stored_day != current ecodan day → shift not yet done → write to slot 47
+    //                                       (shift will carry it to slot 23)
 
-    if (target_idx < 0 || target_idx >= 48) return;
     if (snapshot_mutex_ == NULL || xSemaphoreTake(snapshot_mutex_, pdMS_TO_TICKS(100)) != pdTRUE) return;
 
-    if (odin_actual_dhw_cons_.size() != 48)     odin_actual_dhw_cons_.assign(48, NAN);
-    if (odin_actual_dhw_prod_.size() != 48)     odin_actual_dhw_prod_.assign(48, NAN);
-    if (odin_actual_cons_.size() != 48)         odin_actual_cons_.assign(48, NAN);
-    if (odin_actual_prod_.size() != 48)         odin_actual_prod_.assign(48, NAN);
-    if (odin_actual_room_.size() != 48)         odin_actual_room_.assign(48, NAN);
-    if (odin_actual_standby_cons_.size() != 48) odin_actual_standby_cons_.assign(48, NAN);
+    if (odin_actual_dhw_cons_.size() != 72)     odin_actual_dhw_cons_.assign(72, NAN);
+    if (odin_actual_dhw_prod_.size() != 72)     odin_actual_dhw_prod_.assign(72, NAN);
+    if (odin_actual_cons_.size() != 72)         odin_actual_cons_.assign(72, NAN);
+    if (odin_actual_prod_.size() != 72)         odin_actual_prod_.assign(72, NAN);
+    if (odin_actual_room_.size() != 72)         odin_actual_room_.assign(72, NAN);
+    if (odin_actual_standby_cons_.size() != 72) odin_actual_standby_cons_.assign(72, NAN);
+
+    int target_idx = 24 + hour;
+
+    if (hour == 23) {
+        if (day >= 0 && this->odin_stored_day_ == day) {
+            // Shift has already happened: slot 23 is yesterday's last hour
+            target_idx = 23;
+            esp_log_write(ESP_LOG_DEBUG, TAG, "update_actual_data: hour 23 post-shift -> slot 23 (yesterday)\n");
+        } else {
+            // Shift not yet happened: write to slot 47, shift will carry it to slot 23
+            target_idx = 47;
+            esp_log_write(ESP_LOG_DEBUG, TAG, "update_actual_data: hour 23 pre-shift -> slot 47 (shift will move to 23)\n");
+        }
+    }
+
+    if (target_idx < 0 || target_idx >= 72) {
+        xSemaphoreGive(snapshot_mutex_);
+        return;
+    }
 
     odin_actual_cons_[target_idx]         = actual_cons_kwh;
     odin_actual_prod_[target_idx]         = actual_prod_kwh;
@@ -1021,10 +1096,10 @@ void EcodanDashboard::nvs_persist_odin_() {
     // snapshot all data under mutex (fast memcpy only, no NVS I/O) ---
     // The mutex is held for the shortest possible time — just copying vectors to local arrays.
     // All slow NVS reads and writes happen AFTER the mutex is released.
-    static const int N = 48;
+    static const int N = 72;
     static const int NUM_ARRS = 19;
 
-    // Local stack copies — 18 × 48 × 4 = 3456 bytes on NVS task stack.
+    // Local stack copies — 19 × 72 × 4 = 5472 bytes on NVS task stack (fits in 8192).
     float snap[NUM_ARRS][N];
     int32_t snap_day = -1;
     bool snap_show_tab = false;
@@ -1109,11 +1184,13 @@ void EcodanDashboard::nvs_persist_odin_() {
         if (needs_write) {
             nvs_set_blob(h, KEYS[k], snap[k], N * sizeof(float));
             has_changes = true;
+            vTaskDelay(pdMS_TO_TICKS(30));
         }
     }
 
     if (has_changes) {
         nvs_commit(h);
+        vTaskDelay(pdMS_TO_TICKS(30));
         esp_log_write(ESP_LOG_INFO, TAG, "NVS: ODIN arrays persisted (day=%d)\n", snap_day);
     } else {
         esp_log_write(ESP_LOG_DEBUG, TAG, "NVS: no changes, skipping write (day=%d)\n", snap_day);
@@ -1123,130 +1200,139 @@ void EcodanDashboard::nvs_persist_odin_() {
 
 void EcodanDashboard::load_odin_data(int current_day) {
     // Only load once
-    if (this->odin_data_ready_) return; 
+    if (this->odin_data_ready_) return;
 
-    if (this->snapshot_mutex_ == NULL || xSemaphoreTake(this->snapshot_mutex_, pdMS_TO_TICKS(500)) != pdTRUE) {
-        ESP_LOGW(TAG, "NVS Load: Failed to acquire mutex, deferring load to next cycle.");
-        return;
-    }
+    // ── 1. All NVS reads OUTSIDE the mutex ────────────────────────────────
+    // Flash reads can take hundreds of ms. Never hold the mutex during NVS I/O
+    // — it blocks the HTTP handler task and crashes lwIP (recv_tcp assert).
+    static const int N = 72;
+    static const int NUM_ARRS = 19;
+
+    // Same order as KEYS[] in nvs_persist_odin_
+    static const char* KEYS[NUM_ARRS] = {
+        "exp_end", "energy",  "prod",    "exp_t",   "cost",    "batt",
+        "act_dhw_cons", "act_dhw_prod",
+        "act_cons", "act_prod", "act_room",
+        "prices", "weather", "solar", "op_mode", "sb", "smn", "smx",
+        "act_standby"
+    };
+    // Default fill per array — NAN for actuals/temps, 0 for the rest
+    static const float FILL[NUM_ARRS] = {
+        NAN,   NAN,   NAN,   NAN,   NAN,   0.0f,  // exp_end..batt
+        NAN,   NAN,                                 // act_dhw_cons, act_dhw_prod
+        NAN,   NAN,   NAN,                          // act_cons, act_prod, act_room
+        0.0f,  0.0f,  0.0f,  0.0f,                 // prices, weather, solar, op_mode
+        0.0f,  0.0f,  0.0f,                         // sb, smn, smx
+        NAN                                          // act_standby
+    };
 
     nvs_handle_t h;
     if (nvs_open(NVS_ODIN_NS, NVS_READONLY, &h) != ESP_OK) {
-        // Fresh device — no NVS data at all. show_solver_tab defaults to off (correct).
+        // Fresh device — no NVS data present
         ESP_LOGI(TAG, "NVS: no odin_cache found, starting fresh");
-        this->odin_stored_day_ = current_day;
-        this->odin_data_ready_ = true;
-        xSemaphoreGive(this->snapshot_mutex_); // Geef slotje vrij
+        if (this->snapshot_mutex_ != NULL && xSemaphoreTake(this->snapshot_mutex_, pdMS_TO_TICKS(500)) == pdTRUE) {
+            this->odin_stored_day_ = current_day;
+            this->odin_data_ready_ = true;
+            xSemaphoreGive(this->snapshot_mutex_);
+        }
         return;
     }
 
-    // Load show_tab first — must survive even if ODIN data arrays are missing/stale
+    // Read scalars into local variables
     uint8_t stored_show_tab = 0;
-    if (nvs_get_u8(h, "show_tab", &stored_show_tab) == ESP_OK) {
-        if (this->sw_show_solver_tab_ != nullptr) {
-            if (stored_show_tab) this->sw_show_solver_tab_->turn_on();
-            else this->sw_show_solver_tab_->turn_off();
-            ESP_LOGI(TAG, "NVS: show_solver_tab restored to %d", stored_show_tab);
-        }
-    }
+    nvs_get_u8(h, "show_tab", &stored_show_tab);
 
     int32_t stored_day = -1;
-    if (nvs_get_i32(h, "day", &stored_day) != ESP_OK) {
-        // No ODIN data yet — but show_tab was already loaded above
-        nvs_close(h);
-        this->odin_stored_day_ = current_day;
-        this->odin_data_ready_ = true;
-        xSemaphoreGive(this->snapshot_mutex_); // Geef slotje vrij
-        return;
-    }
+    bool has_day = (nvs_get_i32(h, "day", &stored_day) == ESP_OK);
 
-    auto load_arr = [&](const char* key, std::vector<float>& out, float fill = 0.0f) -> bool {
-        size_t len = 48 * sizeof(float);
-        out.resize(48, fill);
-        return nvs_get_blob(h, key, out.data(), &len) == ESP_OK && len == 48 * sizeof(float);
-    };
+    // Read all arrays into local snap buffers
+    float snap[NUM_ARRS][N];
+    bool snap_ok[NUM_ARRS];
 
-    // Load expected_end_temp: try new key first, fall back to legacy "sched"
-    bool has_exp_end = load_arr("exp_end", this->odin_expected_end_temp_);
-    if (!has_exp_end) {
-        has_exp_end = load_arr("sched", this->odin_expected_end_temp_);
-        if (has_exp_end) {
-            ESP_LOGI(TAG, "NVS: loaded expected_end_temp from legacy key 'sched'");
+    // Index 0 = exp_end: try new key first, fall back to legacy "sched"
+    {
+        size_t len = N * sizeof(float);
+        snap_ok[0] = (nvs_get_blob(h, "exp_end", snap[0], &len) == ESP_OK && len == N * sizeof(float));
+        if (!snap_ok[0]) {
+            len = N * sizeof(float);
+            snap_ok[0] = (nvs_get_blob(h, "sched", snap[0], &len) == ESP_OK && len == N * sizeof(float));
+            if (snap_ok[0]) ESP_LOGI(TAG, "NVS: loaded expected_end_temp from legacy key 'sched'");
         }
+        if (!snap_ok[0]) for (int i = 0; i < N; i++) snap[0][i] = FILL[0];
     }
 
-    bool ok = has_exp_end
-           && load_arr("energy",   this->odin_energy_)
-           && load_arr("exp_t",    this->odin_expected_temp_)
-           && load_arr("cost",     this->odin_cost_)
-           && load_arr("batt",     this->odin_battery_discharge_)
-           && load_arr("prod",     this->odin_production_);
-
-    load_arr("act_dhw_cons", this->odin_actual_dhw_cons_, NAN);
-    load_arr("act_dhw_prod", this->odin_actual_dhw_prod_, NAN);
-    load_arr("act_cons", this->odin_actual_cons_, NAN);
-    load_arr("act_prod", this->odin_actual_prod_, NAN);
-    load_arr("act_room",     this->odin_actual_room_,         NAN);
-    load_arr("act_standby", this->odin_actual_standby_cons_, NAN);
-    
-    // Optional — not in "ok" chain, fall back to 0 if missing
-    if (!load_arr("prices",  this->odin_prices_))   this->odin_prices_.assign(48, 0.0f);
-    if (!load_arr("weather", this->odin_weather_))  this->odin_weather_.assign(48, 0.0f);
-    if (!load_arr("solar",   this->odin_solar_))    this->odin_solar_.assign(48, 0.0f);
-    if (!load_arr("op_mode", this->odin_operation_mode_)) this->odin_operation_mode_.assign(48, 0.0f);
-    if (!load_arr("sb",      this->odin_sched_base_)) this->odin_sched_base_.assign(48, 0.0f);
-    if (!load_arr("smn",     this->odin_sched_min_))  this->odin_sched_min_.assign(48, 0.0f);
-    if (!load_arr("smx",     this->odin_sched_max_))  this->odin_sched_max_.assign(48, 0.0f);
+    // Overige arrays
+    for (int k = 1; k < NUM_ARRS; k++) {
+        size_t len = N * sizeof(float);
+        snap_ok[k] = (nvs_get_blob(h, KEYS[k], snap[k], &len) == ESP_OK && len == N * sizeof(float));
+        if (!snap_ok[k]) for (int i = 0; i < N; i++) snap[k][i] = FILL[k];
+    }
 
     nvs_close(h);
 
-    if (ok) {
-        this->odin_stored_day_ = (int)stored_day;
-        
-        // Immediately align the loaded data with the actual Ecodan time
-        if (current_day != this->odin_stored_day_) {
-            int day_delta = current_day - this->odin_stored_day_;
-            if (day_delta == 1 || day_delta == -364 || day_delta == -365) {
-                ESP_LOGI(TAG, "NVS Load: Day transition (%d -> %d), shifting arrays", this->odin_stored_day_, current_day);
-                auto shift_arr = [](std::vector<float>& v, float fill_val) {
-                    if (v.size() != 48) return;
-                    for (int i = 0; i < 24; i++) v[i] = v[i + 24];
-                    for (int i = 24; i < 48; i++) v[i] = fill_val;
-                };
-                shift_arr(this->odin_expected_end_temp_, NAN);
-                shift_arr(this->odin_energy_, NAN);
-                shift_arr(this->odin_production_, NAN);
-                shift_arr(this->odin_expected_temp_, NAN);
-                shift_arr(this->odin_cost_, NAN);
-                shift_arr(this->odin_battery_discharge_, 0.0f);
-                shift_arr(this->odin_actual_dhw_cons_, NAN);
-                shift_arr(this->odin_actual_dhw_prod_, NAN);
-                shift_arr(this->odin_actual_cons_, NAN);
-                shift_arr(this->odin_actual_prod_, NAN);
-                shift_arr(this->odin_actual_room_, NAN);
-                shift_arr(this->odin_actual_standby_cons_, NAN);
-                
-                shift_arr(this->odin_sched_base_, 0.0f);
-                shift_arr(this->odin_sched_min_, 0.0f);
-                shift_arr(this->odin_sched_max_, 0.0f);
-                shift_arr(this->odin_weather_, 0.0f);
-                shift_arr(this->odin_solar_, 0.0f);
-                shift_arr(this->odin_prices_, 0.0f);
-                shift_arr(this->odin_operation_mode_, 0.0f);
-            } else {
-                ESP_LOGI(TAG, "NVS Load: Day jump (%d -> %d), clearing stale actuals", this->odin_stored_day_, current_day);
-                this->odin_actual_dhw_cons_.assign(48, NAN);
-                this->odin_actual_dhw_prod_.assign(48, NAN);
-                this->odin_actual_cons_.assign(48, NAN);
-                this->odin_actual_prod_.assign(48, NAN);
-                this->odin_actual_room_.assign(48, NAN);
-                this->odin_actual_standby_cons_.assign(48, NAN);
-            }
-            this->odin_stored_day_ = current_day;
-        }
+    // ── 2. Day alignment on local snap buffers (still outside mutex) ──────
+    // ok = all critical arrays present
+    bool ok = has_day && snap_ok[0] && snap_ok[1] && snap_ok[2] &&
+              snap_ok[3] && snap_ok[4] && snap_ok[5];
 
+    int32_t aligned_day = ok ? stored_day : (int32_t)current_day;
+
+    if (ok && current_day != (int)stored_day) {
+        int day_delta = current_day - (int)stored_day;
+        if (day_delta == 1 || day_delta == -364 || day_delta == -365) {
+            ESP_LOGI(TAG, "NVS Load: Day transition (%d -> %d), shifting 72h window by 24h", stored_day, current_day);
+            for (int k = 0; k < NUM_ARRS; k++) {
+                // Shift 24 slots left: yesterday slots 0-23 are discarded,
+                // today (24-47) becomes yesterday (0-23),
+                // tomorrow (48-71) becomes today (24-47),
+                // new tomorrow (48-71) is cleared.
+                for (int i = 0; i < 48; i++) snap[k][i] = snap[k][i + 24];
+                for (int i = 48; i < N; i++) snap[k][i] = FILL[k];
+            }
+        } else {
+            ESP_LOGI(TAG, "NVS Load: Day jump (%d -> %d), clearing stale actuals", stored_day, current_day);
+            // Clear only the actuals (indices 6-10 + 18 = act_dhw_cons..act_room + act_standby)
+            for (int k : {6, 7, 8, 9, 10, 18})
+                for (int i = 0; i < N; i++) snap[k][i] = NAN;
+        }
+        aligned_day = current_day;
+    }
+
+    // ── 3. Acquire mutex only for the fast copy into member vectors ───────
+    if (this->snapshot_mutex_ == NULL ||
+        xSemaphoreTake(this->snapshot_mutex_, pdMS_TO_TICKS(500)) != pdTRUE) {
+        ESP_LOGW(TAG, "NVS Load: Failed to acquire mutex after NVS read, deferring.");
+        return;
+    }
+
+    if (ok) {
+        // Copy local snap buffers into member vectors
+        auto copy_snap = [&](int idx, std::vector<float>& v) {
+            v.assign(snap[idx], snap[idx] + N);
+        };
+        copy_snap(0,  this->odin_expected_end_temp_);
+        copy_snap(1,  this->odin_energy_);
+        copy_snap(2,  this->odin_production_);
+        copy_snap(3,  this->odin_expected_temp_);
+        copy_snap(4,  this->odin_cost_);
+        copy_snap(5,  this->odin_battery_discharge_);
+        copy_snap(6,  this->odin_actual_dhw_cons_);
+        copy_snap(7,  this->odin_actual_dhw_prod_);
+        copy_snap(8,  this->odin_actual_cons_);
+        copy_snap(9,  this->odin_actual_prod_);
+        copy_snap(10, this->odin_actual_room_);
+        copy_snap(11, this->odin_prices_);
+        copy_snap(12, this->odin_weather_);
+        copy_snap(13, this->odin_solar_);
+        copy_snap(14, this->odin_operation_mode_);
+        copy_snap(15, this->odin_sched_base_);
+        copy_snap(16, this->odin_sched_min_);
+        copy_snap(17, this->odin_sched_max_);
+        copy_snap(18, this->odin_actual_standby_cons_);
+
+        this->odin_stored_day_ = (int)aligned_day;
         this->odin_data_ready_ = true;
-        ESP_LOGI(TAG, "NVS: ODIN arrays restored and time-aligned (day=%d)", current_day);
+        ESP_LOGI(TAG, "NVS: ODIN arrays restored and time-aligned (day=%d)", aligned_day);
     } else {
         ESP_LOGW(TAG, "NVS: ODIN cache incomplete, discarding");
         this->odin_stored_day_ = current_day;
@@ -1254,6 +1340,13 @@ void EcodanDashboard::load_odin_data(int current_day) {
     }
 
     xSemaphoreGive(this->snapshot_mutex_);
+
+    // Restore show_tab AFTER releasing the mutex.
+    if (this->sw_show_solver_tab_ != nullptr) {
+        if (stored_show_tab) this->sw_show_solver_tab_->turn_on();
+        else                 this->sw_show_solver_tab_->turn_off();
+        ESP_LOGI(TAG, "NVS: show_solver_tab restored to %d", stored_show_tab);
+    }
 }
 
 void EcodanDashboard::store_odin_data(int current_hour, int current_day,
@@ -1279,44 +1372,46 @@ void EcodanDashboard::store_odin_data(int current_hour, int current_day,
         return;
     }
 
-    auto ensure_48 = [](std::vector<float>& v, float fill_val) {
-        if (v.size() != 48) v.assign(48, fill_val);
+    auto ensure_72 = [](std::vector<float>& v, float fill_val) {
+        if (v.size() != 72) v.assign(72, fill_val);
     };
 
-    ensure_48(this->odin_expected_end_temp_, NAN);
-    ensure_48(this->odin_energy_, NAN);
-    ensure_48(this->odin_production_, NAN);
-    ensure_48(this->odin_expected_temp_, NAN);
-    ensure_48(this->odin_cost_, NAN);
-    ensure_48(this->odin_actual_dhw_cons_, NAN);
-    ensure_48(this->odin_actual_dhw_prod_, NAN);
-    ensure_48(this->odin_actual_cons_, NAN);
-    ensure_48(this->odin_actual_prod_, NAN);
-    ensure_48(this->odin_actual_room_, NAN);
-    ensure_48(this->odin_actual_standby_cons_, NAN);
+    ensure_72(this->odin_expected_end_temp_, NAN);
+    ensure_72(this->odin_energy_, NAN);
+    ensure_72(this->odin_production_, NAN);
+    ensure_72(this->odin_expected_temp_, NAN);
+    ensure_72(this->odin_cost_, NAN);
+    ensure_72(this->odin_actual_dhw_cons_, NAN);
+    ensure_72(this->odin_actual_dhw_prod_, NAN);
+    ensure_72(this->odin_actual_cons_, NAN);
+    ensure_72(this->odin_actual_prod_, NAN);
+    ensure_72(this->odin_actual_room_, NAN);
+    ensure_72(this->odin_actual_standby_cons_, NAN);
 
-    ensure_48(this->odin_battery_discharge_, 0.0f);
-    ensure_48(this->odin_sched_base_, 0.0f);
-    ensure_48(this->odin_sched_min_, 0.0f);
-    ensure_48(this->odin_sched_max_, 0.0f);
-    ensure_48(this->odin_weather_, 0.0f);
-    ensure_48(this->odin_solar_, 0.0f);
-    ensure_48(this->odin_prices_, 0.0f);
-    ensure_48(this->odin_operation_mode_, 0.0f);
+    ensure_72(this->odin_battery_discharge_, 0.0f);
+    ensure_72(this->odin_sched_base_, 0.0f);
+    ensure_72(this->odin_sched_min_, 0.0f);
+    ensure_72(this->odin_sched_max_, 0.0f);
+    ensure_72(this->odin_weather_, 0.0f);
+    ensure_72(this->odin_solar_, 0.0f);
+    ensure_72(this->odin_prices_, 0.0f);
+    ensure_72(this->odin_operation_mode_, 0.0f);
 
     if (!this->odin_data_ready_) {
         this->odin_data_ready_ = true;
         this->odin_stored_day_ = current_day;
     }
 
-    // 2. Real day transition: Shift array left by 24h
+    // 2. Real day transition: Shift array left by 24h within the 72-slot window
     if (current_day != this->odin_stored_day_) {
         int day_delta = current_day - this->odin_stored_day_;
         if (day_delta == 1 || day_delta == -364 || day_delta == -365) {
-            ESP_LOGI(TAG, "ODIN day transition (%d -> %d): shifting 48h window", this->odin_stored_day_, current_day);
+            ESP_LOGI(TAG, "ODIN day transition (%d -> %d): shifting 72h window by 24h", this->odin_stored_day_, current_day);
+            // yesterday (0-23) is discarded, today (24-47) → yesterday (0-23),
+            // tomorrow (48-71) → today (24-47), new tomorrow (48-71) is cleared.
             auto shift_arr = [](std::vector<float>& v, float fill_val) {
-                for (int i = 0; i < 24; i++) v[i] = v[i + 24];
-                for (int i = 24; i < 48; i++) v[i] = fill_val;
+                for (int i = 0; i < 48; i++) v[i] = v[i + 24];
+                for (int i = 48; i < 72; i++) v[i] = fill_val;
             };
             shift_arr(this->odin_expected_end_temp_, NAN);
             shift_arr(this->odin_energy_, NAN);
@@ -1339,22 +1434,24 @@ void EcodanDashboard::store_odin_data(int current_hour, int current_day,
             shift_arr(this->odin_actual_standby_cons_, NAN);
         } else {
             ESP_LOGI(TAG, "ODIN day jump (%d -> %d): clearing old actuals", this->odin_stored_day_, current_day);
-            this->odin_actual_dhw_cons_.assign(48, NAN);
-            this->odin_actual_dhw_prod_.assign(48, NAN);
-            this->odin_actual_cons_.assign(48, NAN);
-            this->odin_actual_prod_.assign(48, NAN);
-            this->odin_actual_room_.assign(48, NAN);
-            this->odin_actual_standby_cons_.assign(48, NAN);
+            this->odin_actual_dhw_cons_.assign(72, NAN);
+            this->odin_actual_dhw_prod_.assign(72, NAN);
+            this->odin_actual_cons_.assign(72, NAN);
+            this->odin_actual_prod_.assign(72, NAN);
+            this->odin_actual_room_.assign(72, NAN);
+            this->odin_actual_standby_cons_.assign(72, NAN);
         }
         this->odin_stored_day_ = current_day;
     }
     
-    // 3. Unified Data Update (Indexes 0-47, covering Today and Tomorrow)
+    // 3. Unified Data Update
+    // The solver delivers 48 values covering today (0-23) and tomorrow (24-47).
+    // In the 72-slot window: yesterday=0-23, today=24-47, tomorrow=48-71.
+    // So solver index i maps to target slot 24+i.
     for (int i = 0; i < 48; i++) {
-        // We no longer add 24. Index maps 1:1 with the 48h solver output
-        int target_idx = i;
+        int target_idx = 24 + i;   // offset into 72-slot window
 
-        // Static data
+        // Static data (always overwrite — comes from fresh forecast)
         if (i < (int)sched_base.size() && !std::isnan(sched_base[i]))  this->odin_sched_base_[target_idx] = sched_base[i];
         if (i < (int)sched_min.size()  && !std::isnan(sched_min[i]))   this->odin_sched_min_[target_idx]  = sched_min[i];
         if (i < (int)sched_max.size()  && !std::isnan(sched_max[i]))   this->odin_sched_max_[target_idx]  = sched_max[i];
@@ -1362,8 +1459,8 @@ void EcodanDashboard::store_odin_data(int current_hour, int current_day,
         if (i < (int)solar.size()      && !std::isnan(solar[i]))       this->odin_solar_[target_idx]      = solar[i];
         if (i < (int)prices.size()     && !std::isnan(prices[i]))      this->odin_prices_[target_idx]     = prices[i];
 
-        // Calculated data (Only overwrite future hours or empty slots)
-        bool is_future = (i > current_hour); // Note: current_hour is still 0-23
+        // Calculated data (only overwrite future hours or empty slots)
+        bool is_future = (i > current_hour); // current_hour is still 0-23 relative to today
         bool is_empty_slot = std::isnan(this->odin_production_[target_idx]);
 
         if (is_future || is_empty_slot) {
@@ -1386,7 +1483,7 @@ void EcodanDashboard::store_odin_data(int current_hour, int current_day,
 
 void EcodanDashboard::handle_odin_request_(AsyncWebServerRequest *request) {
   constexpr size_t JSON_BUFFER_SIZE = 1200;
-  constexpr size_t ODIN_HOURS = 48;
+  constexpr size_t ODIN_HOURS = 72;
 
   httpd_req_t *req = *request;
   httpd_resp_set_status(req, "200 OK");
@@ -1471,20 +1568,26 @@ void EcodanDashboard::handle_odin_request_(AsyncWebServerRequest *request) {
       }
 
       int offset = snprintf(json_buf, JSON_BUFFER_SIZE,
+          "\"current_hour\":%d,"
+          "\"today_start_index\":24,"
           "\"last_run\":{\"execution_ms\":%u,\"evaluated_nodes\":%u,\"bidding_zone\":\"%s\",\"heat_loss\":%.3f,\"base_cop\":%.2f,"
           "\"thermal_mass\":%.1f,\"exp_consumption\":%.2f,\"exp_production\":%.2f,"
-          "\"exp_solar\":%.2f,\"exp_solar_total\":%.2f,\"used_solar_kwp\":%.2f,\"total_cost\":%.4f}}",
+          "\"exp_solar\":%.2f,\"exp_solar_total\":%.2f,\"used_solar_kwp\":%.2f,"
+          "\"used_solar_correction\":%.3f,\"used_battery_soc_kwh\":%.2f,\"total_cost\":%.4f}}",
+          stats.current_hour,
           stats.execution_ms,
           stats.evaluated_nodes,
           stats.bidding_zone.c_str(),
-          stats.heat_loss, 
+          stats.heat_loss,
           stats.base_cop,
-          stats.thermal_mass, 
-          stats.exp_consumption, 
+          stats.thermal_mass,
+          stats.exp_consumption,
           stats.exp_production,
-          stats.exp_solar, 
-          stats.exp_solar_total, 
-          stats.used_solar_kwp, 
+          stats.exp_solar,
+          stats.exp_solar_total,
+          stats.used_solar_kwp,
+          stats.used_solar_correction,
+          stats.used_battery_soc_kwh,
           stats.total_cost);
 
       if (offset > 0 && offset < JSON_BUFFER_SIZE) {

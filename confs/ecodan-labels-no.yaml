@@ -24,6 +24,7 @@ substitutions:
   version: ESP-versjon
   led_brightness: LED lysstyrke
   led_switch: LED
+  heatpump_switch_regular_dhw: Normalt DHW
   heatpump_switch_force_dhw: Tving DHW
   heatpump_switch_power_mode: Varmepumpe
   heatpump_switch_holiday: Ferie-modus kontroll
@@ -166,6 +167,10 @@ substitutions:
   solver_kwh_meter_feedback_source: "Energimåler kilde"
   solver_kwh_meter_option_internal: "Intern energimåler"
   solver_kwh_meter_feedback: "kWh-måler tilbakemelding"
+
+  solver_dhw_mode: Solver varmtvannsmodus
+  solver_dhw_mode_option_regular: Normal
+  solver_dhw_mode_option_forced: Tvunget
 
   asgard_vt_temp_sensor_source: 'Kilde Virtuell Termostat'
 

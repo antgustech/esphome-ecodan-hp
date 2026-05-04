@@ -24,6 +24,7 @@ substitutions:
   version: ESP Version
   led_brightness: LED Brightness
   led_switch: LED
+  heatpump_switch_regular_dhw: Regular DHW
   heatpump_switch_force_dhw: Force DHW
   heatpump_switch_power_mode: Heatpump
   heatpump_switch_holiday: Holiday Mode
@@ -176,6 +177,9 @@ substitutions:
   solver_kwh_meter_feedback_source: Energy Meter Source
   solver_kwh_meter_option_internal: Internal Energy Meter
   solver_kwh_meter_feedback: kWh meter feedback
+  solver_dhw_mode: Solver DHW Mode
+  solver_dhw_mode_option_regular: Regular
+  solver_dhw_mode_option_forced: Forced
 
   asgard_vt_temp_sensor_source: Virtual Thermostat Source
 
@@ -192,3 +196,7 @@ substitutions:
   num_battery_max_discharge_kw: "Battery Max Discharge (kW)"
   num_raw_hl_tm_product: "Raw HL×TM Product"
   num_raw_solar_factor: "Passive Solar Gain Factor"
+  num_raw_cool_produced: "Raw Cool Produced"
+  num_raw_cool_elec_consumed: "Raw Cool Elec Consumed"
+  num_raw_cool_runtime_hours: "Raw Cool Runtime"
+  num_raw_cool_avg_outside_temp: "Raw Cool Avg Outside Temp"

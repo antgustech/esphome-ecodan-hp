@@ -24,6 +24,7 @@ substitutions:
   version: ESP Versione
   led_brightness: LED Luminosità
   led_switch: LED
+  heatpump_switch_regular_dhw: ACS normale
   heatpump_switch_force_dhw: Forza ACS
   heatpump_switch_power_mode: Ecodan
   heatpump_switch_holiday: Modalità Vacanza
@@ -167,6 +168,10 @@ substitutions:
   solver_kwh_meter_feedback_source: "Fonte contatore"
   solver_kwh_meter_option_internal: "Contatore interno"
   solver_kwh_meter_feedback: "Feedback contatore kWh"
+
+  solver_dhw_mode: Modalità ACS del Solver
+  solver_dhw_mode_option_regular: Normale
+  solver_dhw_mode_option_forced: Forzato
 
   asgard_vt_temp_sensor_source: 'Sorgente Termostato Virtuale'
 

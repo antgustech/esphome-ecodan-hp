@@ -24,6 +24,7 @@ substitutions:
   version: ESP Version
   led_brightness: Luminosité LED
   led_switch: LED
+  heatpump_switch_regular_dhw: ECS normale
   heatpump_switch_force_dhw: Forcer ECS
   heatpump_switch_power_mode: Pompe à chaleur
   heatpump_switch_holiday: Mode vacances
@@ -167,6 +168,10 @@ substitutions:
   solver_kwh_meter_feedback_source: "Source du compteur"
   solver_kwh_meter_option_internal: "Compteur interne"
   solver_kwh_meter_feedback: "Retour compteur kWh"
+
+  solver_dhw_mode: Mode ECS du solveur
+  solver_dhw_mode_option_regular: Normal
+  solver_dhw_mode_option_forced: Forcé
 
   asgard_vt_temp_sensor_source: 'Source Thermostat Virtuel'
 
