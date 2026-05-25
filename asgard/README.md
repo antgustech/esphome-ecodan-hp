@@ -1,25 +1,38 @@
 
-# Buying the Asgard PCB enables you to
-* Use virtual thermostats that controls IN1/IN6. This can be used instead of CNRF
-* Add high resolution temperature sensors
-* Use in single or proxy setup (attach melcloud or procon)
-* Use this component without Home Asistant (Fully local, no cloud)
-* Have seamless integration with the Solver (not included, seperate product)
-* Support this project and allows me to develop/support more features
+# Asgard PCB: ESP32-S3 Development Sub-assembly
+**Integration module for Mitsubishi Ecodan/Zubadan Heat Pumps**
 
+> [!WARNING]
+> **DIY DEVELOPMENT KIT STATUS**
+> This hardware is a **Sub-assembly / Evaluation Kit**, not a standalone consumer appliance. It is intended for incorporation into a larger system by individuals with technical expertise in electronics and HVAC systems. By purchasing this kit, you acknowledge that you are the **System Integrator** and assume full responsibility for the final installation's safety and compliance.
+
+### Why use the Asgard Sub-assembly?
+* Enables Virtual Thermostat control (IN1/IN6) as a modern alternative to CNRF.
+* High-resolution temperature sensor integration (DS18B20 support).
+* Pass-through (Slave) port functionality for Melcloud or Procon modules.
+* 100% Local control (No Cloud dependency).
 
 # Ordering & Availability
-* **Product:** Asgard PCB in 3d printed casing + **50cm** Connector cable
+* **Product:** Asgard PCB: ESP32-S3 Development Sub-assembly + **50cm** Connector cable
 * **Price:** € 65,- (including VAT)
 * **Delivery:** Shipped within 3 business days from The Netherlands (When in stock)
 
-![Asgard Bundle](img/asgard-50cm-bundle.jpg) 
-
-# ⚡ Asgard is Now Shipping!
+<div align="center">
+  <h2>Order via the link/button below:</h2>
 
 | Standard Order (NL/EU) | UK Special Bundle (3 Units) |
 | :--- | :--- |
 | [![Order Asgard](https://img.shields.io/badge/Order-Single%20Unit-0070BA?style=for-the-badge&logo=stripe&logoColor=white)](https://buy.stripe.com/aFa6oIblrcIPaNN3Wq4AU00) | [![Order UK Bundle](https://img.shields.io/badge/Order-UK%203--Unit%20Bundle-0070BA?style=for-the-badge&logo=stripe&logoColor=white)](https://buy.stripe.com/14AeVefBH8sz9JJ0Ke4AU01) |
+
+</div>
+
+![Asgard Bundle](img/asgard-50cm-bundle.jpg) 
+
+> [!IMPORTANT]
+> **The following FTC controller boards are supported:**
+> * **FTC4 (firmware >= 12.01):** Not all commands are supported
+> * **FTC5:** Missing `real time` energy consumption estimation 
+> * **FTC6/7:**
 
 > [!IMPORTANT]
 > **Shipping Selection Notice**
@@ -40,13 +53,6 @@
 
 
 ## Quality Assurance & Warranty
-
-> [!NOTE]
-> **Professional Assembly & Personal Testing**
-> * **PCB:** The circuit board is professionally manufactured and assembled in a specialized **PCBA factory**.
-> * **Cables:** I use professionally manufactured and tested cables to ensure reliability.
-> * **Final Check:** Every single unit is **personally flashed, inspected, and tested** by the developer before it is packed and shipped to you.
-
 > [!IMPORTANT]
 > **Warranty & Liability**
 > While this hardware is professionally built, it is sold as a **Do-It-Yourself (DIY) component**.

@@ -30,13 +30,14 @@ void EcodanDashboard::setup() {
 
   // NVS writes run in a dedicated low-priority task to avoid blocking lwIP
   this->nvs_trigger_ = xSemaphoreCreateBinary();
-  xTaskCreate(
-      EcodanDashboard::nvs_task_,
-      "nvs_persist",
-      8192,
-      this,
-      1,                           // priority 1 = lowest above idle, well below lwIP (18)
-      &this->nvs_task_handle_
+  xTaskCreatePinnedToCore(
+    EcodanDashboard::nvs_task_,
+    "nvs_persist",
+    8192,
+    this,
+    1,                          // priority 1 = lowest above idle, well below lwIP (18)
+    &this->nvs_task_handle_,
+    1                           // avoid core 0 (lwIP)
   );
 
   base_->init();
@@ -620,6 +621,7 @@ void EcodanDashboard::handle_state_(AsyncWebServerRequest *request) {
   httpd_resp_set_type(req, "application/json");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+  httpd_resp_set_hdr(req, "Connection", "close");
 
   // Shared 2KB heap buffer — flushed per logical block to stay well within limits.
   // Each block is at most ~600 bytes so there is comfortable headroom.
@@ -957,6 +959,7 @@ void EcodanDashboard::handle_history_request_(AsyncWebServerRequest *request) {
   httpd_resp_set_type(req, "application/json");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+  httpd_resp_set_hdr(req, "Connection", "close");
 
   // Snapshot count/head under lock
   size_t current_count, current_head;
@@ -1007,6 +1010,8 @@ void EcodanDashboard::handle_history_request_(AsyncWebServerRequest *request) {
       rec.cons, rec.prod, rec.outside, rec.liquid_pipe, rec.condensing
     );
     
+    if (len >= sizeof(item)) len = sizeof(item) - 1;
+
     // Abort loop immediately if client drops the connection
     if (httpd_resp_send_chunk(req, item, len) != ESP_OK) {
         return; 
@@ -1089,9 +1094,11 @@ void EcodanDashboard::nvs_task_(void *arg) {
 void EcodanDashboard::nvs_persist_odin_() {
     nvs_handle_t h;
     if (nvs_open("odin_cache", NVS_READWRITE, &h) != ESP_OK) {
-        esp_log_write(ESP_LOG_WARN, TAG, "NVS: failed to open odin_cache for write\n");
+        printf("NVS: failed to open odin_cache for write\n");
         return;
     }
+
+    printf("[NVS] enter, stack HWM: %u words\n", uxTaskGetStackHighWaterMark(NULL));
 
     // snapshot all data under mutex (fast memcpy only, no NVS I/O) ---
     // The mutex is held for the shortest possible time — just copying vectors to local arrays.
@@ -1100,7 +1107,11 @@ void EcodanDashboard::nvs_persist_odin_() {
     static const int NUM_ARRS = 19;
 
     // Local stack copies — 19 × 72 × 4 = 5472 bytes on NVS task stack (fits in 8192).
-    float snap[NUM_ARRS][N];
+    std::vector<float> snap_buffer(NUM_ARRS * N, NAN);
+    float* snap[NUM_ARRS];
+    for (int k = 0; k < NUM_ARRS; k++) {
+        snap[k] = &snap_buffer[k * N];
+    }
     int32_t snap_day = -1;
     bool snap_show_tab = false;
 
@@ -1134,10 +1145,12 @@ void EcodanDashboard::nvs_persist_odin_() {
 
         xSemaphoreGive(this->snapshot_mutex_);
     } else {
-        esp_log_write(ESP_LOG_WARN, TAG, "NVS persist: failed to acquire snapshot mutex, skipping\n");
+        printf("NVS persist: failed to acquire snapshot mutex, skipping\n");
         nvs_close(h);
         return;
     }
+
+    printf("[NVS] snapshot done, day=%d\n", snap_day);
 
     // write to NVS — no mutex held, safe to take as long as needed ---
     bool has_changes = false;
@@ -1163,12 +1176,14 @@ void EcodanDashboard::nvs_persist_odin_() {
         "act_standby"
     };
 
+    std::vector<float> temp_vec(N);
+    float* temp = temp_vec.data();
+
     for (int k = 0; k < NUM_ARRS; k++) {
         size_t required_size = 0;
         bool needs_write = true;
 
         if (nvs_get_blob(h, KEYS[k], NULL, &required_size) == ESP_OK && required_size == N * sizeof(float)) {
-            float temp[N];
             if (nvs_get_blob(h, KEYS[k], temp, &required_size) == ESP_OK) {
                 needs_write = false;
                 for (int i = 0; i < N; i++) {
@@ -1184,6 +1199,7 @@ void EcodanDashboard::nvs_persist_odin_() {
         if (needs_write) {
             nvs_set_blob(h, KEYS[k], snap[k], N * sizeof(float));
             has_changes = true;
+            printf("[NVS] wrote array %d/%d\n", k+1, NUM_ARRS);
             vTaskDelay(pdMS_TO_TICKS(30));
         }
     }
@@ -1191,10 +1207,8 @@ void EcodanDashboard::nvs_persist_odin_() {
     if (has_changes) {
         nvs_commit(h);
         vTaskDelay(pdMS_TO_TICKS(30));
-        esp_log_write(ESP_LOG_INFO, TAG, "NVS: ODIN arrays persisted (day=%d)\n", snap_day);
-    } else {
-        esp_log_write(ESP_LOG_DEBUG, TAG, "NVS: no changes, skipping write (day=%d)\n", snap_day);
-    }
+        printf("[NVS] commit done\n");
+    } 
     nvs_close(h);
 }
 
@@ -1246,7 +1260,11 @@ void EcodanDashboard::load_odin_data(int current_day) {
     bool has_day = (nvs_get_i32(h, "day", &stored_day) == ESP_OK);
 
     // Read all arrays into local snap buffers
-    float snap[NUM_ARRS][N];
+    std::vector<float> snap_buffer(NUM_ARRS * N, NAN);
+    float* snap[NUM_ARRS];
+    for (int k = 0; k < NUM_ARRS; k++) {
+        snap[k] = &snap_buffer[k * N];
+    }
     bool snap_ok[NUM_ARRS];
 
     // Index 0 = exp_end: try new key first, fall back to legacy "sched"
@@ -1482,7 +1500,7 @@ void EcodanDashboard::store_odin_data(int current_hour, int current_day,
 }
 
 void EcodanDashboard::handle_odin_request_(AsyncWebServerRequest *request) {
-  constexpr size_t JSON_BUFFER_SIZE = 1200;
+  constexpr int JSON_BUFFER_SIZE = 4096;
   constexpr size_t ODIN_HOURS = 72;
 
   httpd_req_t *req = *request;
@@ -1490,6 +1508,7 @@ void EcodanDashboard::handle_odin_request_(AsyncWebServerRequest *request) {
   httpd_resp_set_type(req, "application/json");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+  httpd_resp_set_hdr(req, "Connection", "close");
 
   bool is_ready = false;
   if (snapshot_mutex_ != NULL && xSemaphoreTake(snapshot_mutex_, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -1527,14 +1546,22 @@ void EcodanDashboard::handle_odin_request_(AsyncWebServerRequest *request) {
 
       int offset = snprintf(json_buf, JSON_BUFFER_SIZE, "\"%s\":[", name);
       for (size_t i = 0; i < ODIN_HOURS; i++) {
+          int space_left = (JSON_BUFFER_SIZE > offset) ? (JSON_BUFFER_SIZE - offset) : 0;
+          
           if (std::isnan(temp_arr[i])) {
-              offset += snprintf(json_buf + offset, JSON_BUFFER_SIZE - offset, "null");
+              offset += snprintf(json_buf + offset, space_left, "null");
           } else {
-              offset += snprintf(json_buf + offset, JSON_BUFFER_SIZE - offset, "%.2f", temp_arr[i]);
+              offset += snprintf(json_buf + offset, space_left, "%.2f", temp_arr[i]);
           }
-          if (i < ODIN_HOURS - 1) offset += snprintf(json_buf + offset, JSON_BUFFER_SIZE - offset, ",");
+          
+          space_left = (JSON_BUFFER_SIZE > offset) ? (JSON_BUFFER_SIZE - offset) : 0;
+          if (i < ODIN_HOURS - 1) offset += snprintf(json_buf + offset, space_left, ",");
       }
-      offset += snprintf(json_buf + offset, JSON_BUFFER_SIZE - offset, last ? "]" : "],");
+      
+      int space_left = (JSON_BUFFER_SIZE > offset) ? (JSON_BUFFER_SIZE - offset) : 0;
+      offset += snprintf(json_buf + offset, space_left, last ? "]" : "],");
+      
+      if (offset >= JSON_BUFFER_SIZE) offset = JSON_BUFFER_SIZE - 1;
 
       return (httpd_resp_send_chunk(req, json_buf, offset) == ESP_OK);
   };
