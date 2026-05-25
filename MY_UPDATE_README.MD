@@ -1,3 +1,10 @@
+
+I added this shell script to automate this:
+
+```
+./esp-ecodan-build-deploy.sh
+```
+
 Check instructions in: https://github.com/gekkekoe/esphome-ecodan-hp/blob/main/docs/build-from-source.md but in short, this should be enough:
 
 Sync this fork with the original repo:
