@@ -87,11 +87,21 @@ namespace esphome
                     xSemaphoreGive(this->odin_mutex_);
                     return result;
                 }
-
+                
                 if (current_hour >= 0 && current_hour < 24) {
                     auto mode = to_operation_mode(this->odin_operation_mode_[current_hour]);
                     float odin_prod   = this->odin_production_[current_hour];
+
+                    // look ahead during lock
+                    int next_hour = (current_hour + 1) % 24;
+                    auto next_mode = to_operation_mode(this->odin_operation_mode_[next_hour]);
+                    float next_prod  = this->odin_production_[next_hour];
+
                     xSemaphoreGive(this->odin_mutex_);
+
+                    if (mode != OptimizerOperationMode::DHW_ON && mode != OptimizerOperationMode::LEGIONELLA_PREVENTION) {
+                        this->odin_last_executed_dhw_hour_ = -1;
+                    }
 
                     // NAN = no data for this hour yet — fall back to AA, no soft-stop
                     if (std::isnan(odin_prod) || mode == OptimizerOperationMode::UNAVAILABLE) {
@@ -103,21 +113,36 @@ namespace esphome
                     result.mode = mode;
                     result.heatpump_off = (odin_prod < 0.1f &&
                                           mode != OptimizerOperationMode::COOL_ON &&
-                                          mode != OptimizerOperationMode::DHW_ON);
+                                          mode != OptimizerOperationMode::HEAT_ON);
+
+                    // Fall-forward logic: if currently off or doing DHW/Legionella, 
+                    if (odin_last_executed_dhw_hour_ != -1 && (result.heatpump_off || mode == OptimizerOperationMode::DHW_ON || mode == OptimizerOperationMode::LEGIONELLA_PREVENTION)) {
+
+                        if (!std::isnan(next_prod) && next_mode != OptimizerOperationMode::UNAVAILABLE) {
+                            bool next_off = (next_prod < 0.1f &&
+                                            next_mode != OptimizerOperationMode::COOL_ON &&
+                                            next_mode != OptimizerOperationMode::HEAT_ON);
+                            
+                            if (!next_off) {
+                                ESP_LOGI(OPTIMIZER_TAG, "DHW/Legionella complete (or off) at hour %d, resuming with next hour plan (mode=%d, prod=%.2f)",
+                                    current_hour, (int)next_mode, next_prod);
+                                
+                                // Overwrite current working variables to "fall through" to standard logic below
+                                mode = next_mode;
+                                odin_prod = next_prod;
+                                result.mode = mode;
+                                result.heatpump_off = false;
+                            }
+                        }
+                    }
 
                     if (result.heatpump_off) {
                         apply_solver_soft_stop(true);
                         return result;
                     }
-
+                    
                     apply_solver_soft_stop(false);
                     
-                    int heating_type_index = 0;
-                    if (this->state_.heating_system_type != nullptr) {
-                        heating_type_index = this->state_.heating_system_type->active_index().value_or(0);
-                    }
-                    HeatingProfile prof = this->get_heating_profile_(heating_type_index);
-
                     float max_out = 7.0f;
                     if (this->odin_max_output_ != 0) {
                         max_out = this->odin_max_output_;
@@ -125,7 +150,6 @@ namespace esphome
                     if (max_out < 1.0f) max_out = 7.0f;
                     
                     // Calculate how hard ODIN wants the heat pump to work (ratio 0.0–1.0).
-                    // For cooling mode odin_prod carries the cooling load in the same unit (kWh thermal).
                     result.load_ratio = std::clamp(odin_prod / max_out, 0.0f, 1.0f);
                     
                     ESP_LOGD(OPTIMIZER_TAG, "ODIN -> Hour %d | Prod: %.1f/%.1f | factor: %.2f | mode: %d",
@@ -257,8 +281,17 @@ namespace esphome
                          (zone_i + 1), calculated_flow, actual_return_temp, target_delta_t);
             }
 
+            float min_cool_target = 18.0f;
+            if (zone_i == 0) {
+                if (this->state_.minimum_cooling_flow_temp_z1 != nullptr)
+                    min_cool_target = state_.minimum_cooling_flow_temp_z1->state;
+            } else {
+                if (state_.minimum_cooling_flow_temp_z2 != nullptr)
+                    min_cool_target = state_.minimum_cooling_flow_temp_z2->state;
+            }
+
             calculated_flow = this->clamp_flow_temp(calculated_flow,
-                                                    this->state_.minimum_cooling_flow_temp->state,
+                                                    min_cool_target,
                                                     this->state_.cooling_smart_start_temp->state);
             
             return calculated_flow;
@@ -464,7 +497,6 @@ namespace esphome
             auto &status = this->state_.ecodan_instance->get_status();
 
             if (solver_enabled) {
-                static int odin_last_executed_dhw_hour_ = -1;
                 auto [solver_load_ratio, solver_heatpump_off, solver_operating_mode, current_hour] = this->resolve_solver_result_(0.0f, 0.0f);
                 
                 if (solver_operating_mode == OptimizerOperationMode::DHW_ON) {
@@ -499,8 +531,6 @@ namespace esphome
                             }
                         }
                     }
-                } else {
-                    odin_last_executed_dhw_hour_ = -1;
                 }
             }
 

@@ -10,6 +10,7 @@ globals:
 
 asgard_dashboard:
   id: asgard_dashboard_id
+  ecodan_id: ecodan_instance
   version_id:                        current_fw_version
   ui_use_room_z1_id:                 ui_use_room_z1
   # ── Header badge sensors 
@@ -60,6 +61,7 @@ asgard_dashboard:
   sw_defrost_mit_id:                 defrost_risk_handling_enabled
   sw_smart_boost_id:                 smart_boost_enabled
   sw_force_dhw_id:                   heatpump_switch_force_dhw
+  sw_regular_dhw_id:                    heatpump_switch_regular_dhw
 
   # ── Selects 
   sel_heating_system_type_id:        heating_system_type 
@@ -118,8 +120,17 @@ asgard_dashboard:
 
 # ── Cooling Z1
   num_cooling_smart_start_z1_id:     cooling_smart_start_temp
-  num_min_cooling_flow_z1_id:        minimum_cooling_flow_temp
+  num_min_cooling_flow_z1_id:        minimum_cooling_flow_temp_z1
 
 # ── Outside unit
   liquid_pipe_temp_id:                ou_liquid_pipe_temp
   condensing_temp_id:                 hp_refrigerant_condensing_temp
+
+  # power mode switch
+  sw_power_mode_id: heatpump_switch_power_mode
+
+  # short cycle prevention
+  minimum_compressor_on_time_id: minimum_compressor_on_time
+  lockout_duration_id: lockout_duration
+  status_short_cycle_lockout_id: status_short_cycle_lockout
+  short_cycle_mitigation_button_id: short_cycle_mitigation_button

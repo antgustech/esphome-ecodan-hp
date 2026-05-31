@@ -2,21 +2,27 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import web_server_base
 from esphome.const import CONF_ID
+from esphome.components import esp32
 
 DEPENDENCIES = ["web_server_base", "network"]
 AUTO_LOAD = ["web_server_base"]
 
 CONF_WEB_SERVER_BASE_ID = "web_server_base_id"
+CONF_ECODAN_ID = "ecodan_id"
 
-from esphome.components import sensor, binary_sensor, text_sensor, text, climate, number, switch, select, globals
+from esphome.components import sensor, binary_sensor, text_sensor, text, climate, number, switch, select, globals, button
 
 asgard_dashboard_ns = cg.esphome_ns.namespace("asgard_dashboard")
 EcodanDashboard = asgard_dashboard_ns.class_("EcodanDashboard", cg.Component)
+
+ecodan_ns = cg.esphome_ns.namespace("ecodan")
+EcodanHeatpump = ecodan_ns.class_("EcodanHeatpump", cg.PollingComponent)
 
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(EcodanDashboard),
         cv.GenerateID(CONF_WEB_SERVER_BASE_ID): cv.use_id(web_server_base.WebServerBase),
+        cv.Required(CONF_ECODAN_ID): cv.use_id(EcodanHeatpump),
 
         cv.Optional("hp_feed_temp_id"):                    cv.use_id(sensor.Sensor),
         cv.Optional("hp_return_temp_id"):                  cv.use_id(sensor.Sensor),
@@ -66,8 +72,10 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional("sw_defrost_mit_id"):                  cv.use_id(switch.Switch),
         cv.Optional("sw_smart_boost_id"):                  cv.use_id(switch.Switch),
         cv.Optional("sw_force_dhw_id"):                    cv.use_id(switch.Switch),
+        cv.Optional("sw_regular_dhw_id"):                  cv.use_id(switch.Switch),
         cv.Optional("sw_use_solver_id"):                   cv.use_id(switch.Switch),
         cv.Optional("sw_show_solver_tab_id"):              cv.use_id(switch.Switch),
+        cv.Optional("sw_power_mode_id"):                   cv.use_id(switch.Switch),
 
         # Server control
         cv.Optional("sw_server_control_id"):               cv.use_id(switch.Switch),
@@ -107,6 +115,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional("num_battery_max_discharge_kw_id"):    cv.use_id(number.Number),
         cv.Optional("num_cooling_smart_start_z1_id"):      cv.use_id(number.Number),
         cv.Optional("num_min_cooling_flow_z1_id"):         cv.use_id(number.Number),
+        cv.Optional("num_min_cooling_flow_z2_id"):         cv.use_id(number.Number),
 
         cv.Optional("num_raw_cool_produced_id"):           cv.use_id(number.Number),
         cv.Optional("num_raw_cool_elec_consumed_id"):      cv.use_id(number.Number),
@@ -128,6 +137,12 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional("ui_use_room_z1_id"): cv.use_id(globals.GlobalsComponent),
         cv.Optional("ui_use_room_z2_id"): cv.use_id(globals.GlobalsComponent),
 
+        # Short Cycle Prevention
+        cv.Optional("minimum_compressor_on_time_id"): cv.use_id(number.Number),
+        cv.Optional("lockout_duration_id"): cv.use_id(select.Select),
+        cv.Optional("status_short_cycle_lockout_id"): cv.use_id(binary_sensor.BinarySensor),
+        cv.Optional("short_cycle_mitigation_button_id"): cv.use_id(button.Button),
+
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -139,11 +154,20 @@ async def _wire(config, var, conf_key, setter):
 
 
 async def to_code(config):
+
+    esp32.add_idf_component(
+        name="esp_littlefs",
+        repo="https://github.com/joltwallet/esp_littlefs.git"
+    )
+    
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
 
     wsb = await cg.get_variable(config[CONF_WEB_SERVER_BASE_ID])
     cg.add(var.set_web_server_base(wsb))
+
+    ecodan_var = await cg.get_variable(config[CONF_ECODAN_ID])
+    cg.add(var.set_ecodan(ecodan_var))
 
     pairs = [
         ("version_id",                        "set_version"),
@@ -187,6 +211,7 @@ async def to_code(config):
         ("sw_defrost_mit_id",                 "set_sw_defrost_mit"),
         ("sw_smart_boost_id",                 "set_sw_smart_boost"),
         ("sw_force_dhw_id",                   "set_sw_force_dhw"),
+        ("sw_regular_dhw_id",                 "set_sw_regular_dhw"),
         ("sel_heating_system_type_id",        "set_sel_heating_system_type"),
         ("sel_room_temp_source_z1_id",        "set_sel_room_temp_source_z1"),
         ("sel_room_temp_source_z2_id",        "set_sel_room_temp_source_z2"),
@@ -235,6 +260,8 @@ async def to_code(config):
         ("num_battery_max_discharge_kw_id",   "set_num_battery_max_discharge_kw"),
         ("num_cooling_smart_start_z1_id",     "set_num_cooling_smart_start_z1"),
         ("num_min_cooling_flow_z1_id",        "set_num_min_cooling_flow_z1"),
+        ("num_min_cooling_flow_z2_id",        "set_num_min_cooling_flow_z2"),
+        ("sw_power_mode_id",                  "set_sw_power_mode"),
         ("sw_show_solver_tab_id",             "set_sw_show_solver_tab"), 
 
         # Server control
@@ -244,6 +271,12 @@ async def to_code(config):
         ("sw_sc_prohibit_z1_cooling_id",      "set_sw_sc_prohibit_z1_cooling"),
         ("sw_sc_prohibit_z2_heating_id",      "set_sw_sc_prohibit_z2_heating"),
         ("sw_sc_prohibit_z2_cooling_id",      "set_sw_sc_prohibit_z2_cooling"),
+
+        # Short Cycle Prevention mappings
+        ("minimum_compressor_on_time_id",     "set_minimum_compressor_on_time"),
+        ("lockout_duration_id",               "set_lockout_duration"),
+        ("status_short_cycle_lockout_id",     "set_status_short_cycle_lockout"),
+        ("short_cycle_mitigation_button_id",  "set_short_cycle_mitigation_button"),
     ]
 
     for conf_key, setter in pairs:

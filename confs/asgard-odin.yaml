@@ -106,7 +106,8 @@ script:
                   float _dhw_target = std::isnan(id(dhw_flow_temp_target).state) ? 0.0f : id(dhw_flow_temp_target).state;
                   float _dhw_drop = std::isnan(id(dhw_flow_temp_drop).state) ? 0.0f : id(dhw_flow_temp_drop).state;
                   float _dhw_thresh = std::isnan(id(dhw_start_threshold).state) ? 0.0f : id(dhw_start_threshold).state;
-                  
+                  float _min_cool_flow = std::isnan(id(minimum_cooling_flow_temp_z1).state) ? 18.0f : id(minimum_cooling_flow_temp_z1).state;
+
                   uint8_t _op_mode = 0; 
                   // use selected operating mode to derive heating/cooling
                   auto hc_mode = id(ecodan_instance).get_status().HeatingCoolingMode;
@@ -144,6 +145,7 @@ script:
                       "\"dhw_target\":%.2f,"
                       "\"dhw_drop\":%.2f,"
                       "\"dhw_start_threshold\":%.2f,"
+                      "\"min_cool_flow\":%.2f,"
                       "\"current_operation_mode\":%u"
                       "}}",
                       id(num_raw_heat_produced).state,
@@ -166,6 +168,7 @@ script:
                       _dhw_target,
                       _dhw_drop,
                       _dhw_thresh,
+                      _min_cool_flow,
                       _op_mode
                   );
                   return std::string(payload);
@@ -293,6 +296,7 @@ interval:
           {
             // Hourly Accumulator
             static int   last_hour = -1;
+            static int   last_day  = -1;
 
             static float last_h_cons = -1.0f;
             static float last_h_prod = -1.0f;
@@ -316,6 +320,7 @@ interval:
             // Initial run or recovery
             if (last_hour == -1) {
               last_hour   = cur_hr;
+              last_day    = cur_day;
               last_h_cons = cur_h_cons;
               last_h_prod = cur_h_prod;
               last_c_cons = cur_c_cons;
@@ -355,7 +360,7 @@ interval:
               float combined_climate_cons = d_h_cons + d_c_cons;
               float combined_climate_prod = d_h_prod + d_c_prod;
 
-              id(asgard_dashboard_id)->update_actual_data(last_hour, cur_day, combined_climate_cons, combined_climate_prod, d_d_cons, d_d_prod, room, d_standby);
+              id(asgard_dashboard_id)->update_actual_data(last_hour, last_day, combined_climate_cons, combined_climate_prod, d_d_cons, d_d_prod, room, d_standby);
 
               // Save the new baseline for the next hour
               last_h_cons = cur_h_cons;
@@ -366,6 +371,7 @@ interval:
               last_d_prod = cur_d_prod;
               last_t_cons = std::isnan(cur_t_cons) ? 0.0f : cur_t_cons;
               last_hour   = cur_hr;
+              last_day    = cur_day;
             }
           }
 
