@@ -18,7 +18,7 @@ namespace esphome
             uint32_t now = millis();
             bool is_running = (status.CompressorFrequency > 0) || status.CompressorOn;
             bool is_heating_active = status.Operation == esphome::ecodan::Status::OperationMode::HEAT_ON;
-            bool is_cooling_active = status.Operation == esphome::ecodan::Status::OperationMode::COOL_ON; // ADD THIS
+            bool is_cooling_active = status.Operation == esphome::ecodan::Status::OperationMode::COOL_ON;
 
             if (this->last_check_ms_ != 0) {    
                 float minutes_passed = (now - this->last_check_ms_) / 60000.0f;
@@ -220,13 +220,27 @@ namespace esphome
             if (current_day != this->last_processed_day_) {
                 ESP_LOGI(OPTIMIZER_TAG, "Raw Data Collection: Day transition detected (%d -> %d). Saving stats...", 
                          this->last_processed_day_, current_day);
+
+                this->sync_odin_data_day();
+
+                // FTC4/FTC5 Fallback Logic (Consumption Only)
+                if (this->last_total_heating_consumed_ <= 0.01f && this->daily_runtime_global > 0.0f) {
+                    ESP_LOGI(OPTIMIZER_TAG, "Real-time heating consumption empty. Falling back to daily Ecodan sensor.");
+                    
+                    if (this->state_.ftc_heating_consumed != nullptr && this->state_.ftc_heating_consumed->has_state()) {
+                        this->last_total_heating_consumed_ = this->state_.ftc_heating_consumed->state;
+                    }
+                }
+
+                if (this->last_total_cooling_consumed_ <= 0.01f && this->daily_runtime_cool_ > 0.0f) {
+                    ESP_LOGI(OPTIMIZER_TAG, "Real-time cooling consumption empty. Falling back to daily Ecodan sensor.");
+
+                    if (this->state_.ftc_cooling_consumed != nullptr && this->state_.ftc_cooling_consumed->has_state()) {
+                        this->last_total_cooling_consumed_ = this->state_.ftc_cooling_consumed->state;
+                    }
+                }
                 
                 this->update_learning_model(this->last_processed_day_);
-
-                // Delay the fetch by 30s so NVS writes from update_learning_model
-                // finish before the HTTP call starts — both on the main loop,
-                // immediate trigger risks watchdog timeout at midnight.
-                this->odin_fetch_pending_ms_ = millis() + 180000; // fire after 3 min — waits for ODIN 00:01 refresh
 
                 // Reset variables for the new day
                 this->last_processed_day_ = current_day;
@@ -262,13 +276,6 @@ namespace esphome
                 this->last_run_time_    = UINT32_MAX - 700000UL;
             }
 
-            // PENDING FETCH: fired by day transition after 30s delay
-            if (this->odin_fetch_pending_ms_ > 0 && millis() >= this->odin_fetch_pending_ms_) {
-                this->odin_fetch_pending_ms_ = 0;
-                this->set_odin_fetch_request();
-                ESP_LOGI(OPTIMIZER_TAG, "Day transition: delayed fetch now firing.");
-            }
-
             // HOURLY MPC TRIGGER
             if (this->solver_enabled()) {
                 time_t ts = this->state_.ecodan_instance->get_status().timestamp();
@@ -276,34 +283,13 @@ namespace esphome
                     struct tm t;
                     localtime_r(&ts, &t);
                     int cur_min = t.tm_min;
-                    // don't trigger for 23:55 since day transition will trigger MPC
-                    if (current_hour != 23 && cur_min >= 55 && current_hour != this->last_pre_hour_triggered_) {
+                    if (cur_min >= 55 && current_hour != this->last_pre_hour_triggered_) {
                         this->last_pre_hour_triggered_ = current_hour;
                         ESP_LOGI(OPTIMIZER_TAG, "Pre-hour trigger at %02d:55 — requesting ODIN solve for hour %d.",
                                 current_hour, (current_hour + 1) % 24);
                         this->set_odin_fetch_request();
                     }
                 }
-
-                // if (current_hour != this->last_processed_hour_) {
-                //     ESP_LOGD(OPTIMIZER_TAG, "Hour transition detected (%d -> %d).", this->last_processed_hour_, current_hour);
-                //     //this->set_odin_fetch_request();
-                //     this->last_processed_hour_ = current_hour;
-                // } 
-                // else {
-                //     time_t ts = this->state_.ecodan_instance->get_status().timestamp();
-                //     if (ts > 0) {
-                //         struct tm t;
-                //         localtime_r(&ts, &t);
-                //         int cur_min = t.tm_min;
-                //         if (cur_min >= 55 && current_hour != this->last_pre_hour_triggered_) {
-                //             this->last_pre_hour_triggered_ = current_hour;
-                //             ESP_LOGI(OPTIMIZER_TAG, "Pre-hour trigger at %02d:55 — requesting ODIN solve for hour %d.",
-                //                     current_hour, (current_hour + 1) % 24);
-                //             this->set_odin_fetch_request();
-                //         }
-                //     }
-                // }
             }
 
             // Track the last active mode persistently to catch delayed meter updates and wind-down.
@@ -463,13 +449,15 @@ namespace esphome
             // ALWAYS UPDATE: Passive Data & Building Physics ---
             update_ema_num(this->state_.num_raw_avg_room_temp, avg_room, ALPHA);
             update_ema_num(this->state_.num_raw_delta_room_temp, delta_room, ALPHA);
+            // Always track to avoid COP/EER normalisation issues when there is no heating/cooling
+            update_ema_num(this->state_.num_raw_avg_outside_temp,      avg_outside, ALPHA);
+            update_ema_num(this->state_.num_raw_cool_avg_outside_temp, avg_outside, ALPHA);
 
             // ONLY UPDATE WHEN HEATING OR COOLING: System Performance ---
             if (heat_produced_kwh >= 2.0f && runtime_hours >= 1.0f) {
                 update_ema_num(this->state_.num_raw_heat_produced, heat_produced_kwh, ALPHA);
                 update_ema_num(this->state_.num_raw_elec_consumed, elec_consumed_kwh, ALPHA);
                 update_ema_num(this->state_.num_raw_runtime_hours, runtime_hours, ALPHA);
-                update_ema_num(this->state_.num_raw_avg_outside_temp, avg_outside, ALPHA);
 
                 ESP_LOGI(OPTIMIZER_TAG, "Full Heating update (15%% EMA): Heat=%.1fkWh, Elec=%.1fkWh, Run=%.1fh, AvgOut=%.1fC, AvgRoom=%.1fC",
                          safe_get(this->state_.num_raw_heat_produced, heat_produced_kwh), 
@@ -482,7 +470,6 @@ namespace esphome
                 update_ema_num(this->state_.num_raw_cool_produced, cool_produced_kwh, ALPHA);
                 update_ema_num(this->state_.num_raw_cool_elec_consumed, cool_elec_consumed_kwh, ALPHA);
                 update_ema_num(this->state_.num_raw_cool_runtime_hours, cool_runtime_hours, ALPHA);
-                update_ema_num(this->state_.num_raw_cool_avg_outside_temp, avg_outside, ALPHA);
 
                 ESP_LOGI(OPTIMIZER_TAG, "Full Cooling update (15%% EMA): CoolProd=%.1fkWh, CoolElec=%.1fkWh, Run=%.1fh, AvgOut=%.1fC",
                          safe_get(this->state_.num_raw_cool_produced, cool_produced_kwh), 

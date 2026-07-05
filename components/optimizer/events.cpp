@@ -83,7 +83,7 @@ namespace esphome
                 }
             }   
             else {
-                adjusted_flow = enforce_step_down(status, actual_flow_temp, current_flow_setpoint);
+                adjusted_flow = enforce_step_limit(status, actual_flow_temp, current_flow_setpoint);
             }
     
             if (adjusted_flow != current_flow_setpoint)
@@ -145,22 +145,7 @@ namespace esphome
             }
             return false;
         }
-
-        float Optimizer::enforce_step_down(const ecodan::Status &status, float actual_flow_temp, float calculated_flow) 
-        {
-            const float MAX_FEED_STEP_DOWN = 1.0f;
-            const float MAX_FEED_STEP_DOWN_ADJUSTMENT = 0.5f;
-            
-            if ((actual_flow_temp - calculated_flow) > MAX_FEED_STEP_DOWN)
-            {
-                ESP_LOGW(OPTIMIZER_TAG, "Flow adjust: %.2f°C to prevent compressor stop! (setpoint: %.2f°C is %.2f°C below actual feed temp)",
-                        actual_flow_temp - MAX_FEED_STEP_DOWN_ADJUSTMENT, calculated_flow, (actual_flow_temp - calculated_flow));
-
-                return actual_flow_temp - MAX_FEED_STEP_DOWN_ADJUSTMENT;
-            }
-            return calculated_flow;
-        }
-
+        
         void Optimizer::on_compressor_stop()
         {
             auto &status = this->state_.ecodan_instance->get_status();
@@ -228,12 +213,18 @@ namespace esphome
 
             // Only save heating setpoints when coming from heating — this is the signal
             // on_feed_temp_change uses to know whether DHW flow-temp following is needed.
-            if (entering_dhw && previous_mode == heating_mode) {
-                this->dhw_old_z1_setpoint_ = status.Zone1FlowTemperatureSetPoint;
-                this->dhw_old_z2_setpoint_ = status.Zone2FlowTemperatureSetPoint;
+            if (entering_dhw) {
+                if (previous_mode == heating_mode) {
+                    this->dhw_old_z1_setpoint_ = status.Zone1FlowTemperatureSetPoint;
+                    this->dhw_old_z2_setpoint_ = status.Zone2FlowTemperatureSetPoint;
 
-                ESP_LOGD(OPTIMIZER_TAG, "Heating → DHW/Legionella. Saved heating setpoints: Z1=%.1f, Z2=%.1f", 
-                    this->dhw_old_z1_setpoint_, this->dhw_old_z2_setpoint_);
+                    ESP_LOGD(OPTIMIZER_TAG, "Heating → DHW/Legionella. Saved heating setpoints: Z1=%.1f, Z2=%.1f", 
+                        this->dhw_old_z1_setpoint_, this->dhw_old_z2_setpoint_);
+                } else {
+                    // always clear setpoint
+                    this->dhw_old_z1_setpoint_ = NAN;
+                    this->dhw_old_z2_setpoint_ = NAN;
+                }   
             }
 
             if (new_mode == heating_mode && previous_mode != heating_mode && this->state_.auto_adaptive_control_enabled->state) {

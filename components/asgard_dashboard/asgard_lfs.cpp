@@ -155,8 +155,9 @@ void EcodanDashboard::setup_lfs() {
     
     if (esp_vfs_littlefs_register(&conf) != ESP_OK) {
         ESP_LOGE(TAG_LFS, "LittleFS mount failed — history disabled");
-        return;
+        return;  // lfs_mounted_ stays false
     }
+    this->lfs_mounted_ = true;
 
     lfs_helper::init_circular_file(LFS_MINUTES_PATH, sizeof(MinuteRecord),
                                    MAX_MINUTES, history_head_, history_count_);
@@ -250,7 +251,7 @@ void EcodanDashboard::lfs_task_(void* arg) {
 // ── Hourly record persistence ─────────────────────────────────────────────────
 
 void EcodanDashboard::record_hourly_data(const HourlyRecord& rec) {
-    if (history_mutex_ == NULL || xSemaphoreTake(history_mutex_, portMAX_DELAY) != pdTRUE)
+    if (!lfs_mounted_ || history_mutex_ == NULL || xSemaphoreTake(history_mutex_, portMAX_DELAY) != pdTRUE)
         return;
 
     // 1. Write the record — write_circular does a forward seek only.
@@ -307,6 +308,28 @@ EcodanDashboard::odin_array_map_() {
     }};
 }
 
+void EcodanDashboard::ensure_odin_vectors_() {
+    for (const auto& entry : odin_array_map_()) {
+        float fill_val = NAN;
+        switch (entry.slot) {
+            case 5:  // battery_discharge
+            case 11: // prices
+            case 12: // weather
+            case 13: // solar
+            case 14: // operation_mode
+            case 15: // sched_base
+            case 16: // sched_min
+            case 17: // sched_max
+                fill_val = 0.0f;
+                break;
+            default:
+                break;
+        }
+
+        if (entry.vec->size() != 72) entry.vec->assign(72, fill_val);
+    }
+}
+
 void EcodanDashboard::lfs_odin_task_(void* arg) {
     auto* self = static_cast<EcodanDashboard*>(arg);
     while (true) {
@@ -316,6 +339,10 @@ void EcodanDashboard::lfs_odin_task_(void* arg) {
 }
 
 void EcodanDashboard::lfs_persist_odin_() {
+    if (!this->lfs_mounted_) {
+        return;
+    }
+    
     // make_unique value-initialises all fields to zero, so no explicit memset needed.
     auto cache = std::make_unique<OdinCacheStruct>();
     cache->magic = ODIN_MAGIC;
@@ -350,8 +377,8 @@ void EcodanDashboard::lfs_persist_odin_() {
     }
 }
 
-void EcodanDashboard::load_odin_data(int current_day) {
-    if (this->odin_data_ready_) return;
+void EcodanDashboard::load_odin_data(int current_day, int current_hour) {
+    if (!lfs_mounted_ || this->odin_data_ready_) return;
 
     auto cache = std::unique_ptr<OdinCacheStruct>(new OdinCacheStruct());
     bool ok = lfs_helper::read_file(LFS_ODIN_PATH, cache.get(), sizeof(OdinCacheStruct));
@@ -360,6 +387,7 @@ void EcodanDashboard::load_odin_data(int current_day) {
     if (!ok) {
         ESP_LOGI(TAG_LFS, "LFS: no valid odin forecast cache found, starting fresh");
         if (this->snapshot_mutex_ != NULL && xSemaphoreTake(this->snapshot_mutex_, pdMS_TO_TICKS(500)) == pdTRUE) {
+            this->ensure_odin_vectors_();
             this->odin_stored_day_ = current_day;
             this->odin_data_ready_ = true;
             xSemaphoreGive(this->snapshot_mutex_);
@@ -388,6 +416,10 @@ void EcodanDashboard::load_odin_data(int current_day) {
                 cache->arrays[16][i] = 0.0f; // smn
                 cache->arrays[17][i] = 0.0f; // smx
             }
+            // After the shift, slots 24..(24+current_hour-1) (new "today", elapsed hours)
+            // still hold yesterday's tomorrow-forecast op_mode. Clear only those slots —
+            // slots from current_hour onwards were set by the last solver run and are valid.
+            for (int i = 24; i < 24 + current_hour; i++) cache->arrays[14][i] = 0.0f;
         } else {
             ESP_LOGI(TAG_LFS, "LFS Load: Day jump, clearing stale actuals");
             for (int k : {6, 7, 8, 9, 10, 18}) {

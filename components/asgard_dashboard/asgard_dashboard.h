@@ -133,6 +133,7 @@ struct DashboardSnapshot {
 
   // Text sensors (fixed-size to avoid heap allocation in snapshot)
   char version[32]{0};
+  char local_ip[16]{0};
 
   // Solver
   bool sw_use_solver{false};
@@ -352,7 +353,7 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
                        const std::vector<float>& op_mode,
                        const LastRunStats& run_stats);
 
-  void load_odin_data(int current_day);
+  void load_odin_data(int current_day, int current_hour = 0);
 
   // Called each hour by YAML to record actual consumption / room temp.
   // hour is 0-23 (today's hour); stored at index 24+hour in the 72-slot window.
@@ -360,6 +361,8 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
                           float actual_cons_kwh, float actual_prod_kwh,
                           float dhw_cons, float dhw_prod,
                           float actual_room_temp, float standby_cons);
+
+  void sync_odin_day();
 
  protected:
   void handle_root_(AsyncWebServerRequest *request);
@@ -548,12 +551,14 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
     std::vector<float>* vec;  // pointer to the corresponding member vector
   };
   std::array<OdinArrayEntry, 19> odin_array_map_();
+  void ensure_odin_vectors_();
 
   static void lfs_odin_task_(void* arg);
   void lfs_persist_odin_();
 
   TaskHandle_t      lfs_odin_task_handle_{nullptr};
   SemaphoreHandle_t lfs_odin_trigger_{nullptr};
+  bool              lfs_mounted_{false}; 
 
   // ── Snapshot (thread-safe sensor cache) ──────────────────────────────────
 
@@ -562,6 +567,7 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
   uint32_t          last_snapshot_time_{0};
   void update_snapshot_();
 
+  int get_current_ecodan_day();
   void align_odin_day_(int current_day);
 
   // ── ODIN solver arrays (72-slot window: yesterday / today / tomorrow) ────
@@ -596,6 +602,8 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
 
   void record_history_();
   void handle_history_request_(AsyncWebServerRequest *request);
+  void send_hourly_history_(httpd_req_t *req, uint32_t from_ts, uint32_t to_ts);
+  void send_minute_history_(httpd_req_t *req, uint32_t from_ts, uint32_t to_ts);
   void handle_js_(AsyncWebServerRequest *request);
   void send_chunked_(AsyncWebServerRequest *request, const char *content_type,
                      const uint8_t *data, size_t length, const char *cache_control);

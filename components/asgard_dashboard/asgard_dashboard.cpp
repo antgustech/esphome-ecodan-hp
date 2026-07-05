@@ -5,6 +5,7 @@
 #include "esphome/core/log.h"
 #include "esphome/core/application.h"
 #include <esp_http_server.h>
+#include <esp_netif.h>
 #include <cstdio>
 #include <cstring>
 #include <cmath>
@@ -54,40 +55,50 @@ void EcodanDashboard::setup() {
   this->odin_lfs_last_write_ms_ = millis();
   this->setup_lfs();
 
-  // ── LFS task (ODIN persistence) ────────────────────────────────────────
-  this->lfs_odin_trigger_ = xSemaphoreCreateBinary();
-  xTaskCreatePinnedToCore(
-    EcodanDashboard::lfs_odin_task_,
-    "lfs_odin",
-    8192,
-    this,
-    1,
-    &this->lfs_odin_task_handle_,
-    1
-  );
+  if (this->lfs_mounted_) {
+    // ── LFS task (ODIN persistence) ────────────────────────────────────────
+    this->lfs_odin_trigger_ = xSemaphoreCreateBinary();
+    xTaskCreatePinnedToCore(
+      EcodanDashboard::lfs_odin_task_,
+      "lfs_odin",
+      8192,
+      this,
+      1,
+      &this->lfs_odin_task_handle_,
+      1
+    );
 
-  // ── LFS task (history persistence) ────────────────────────────────────
-  this->lfs_trigger_ = xSemaphoreCreateBinary();
-  xTaskCreatePinnedToCore(
-    EcodanDashboard::lfs_task_,
-    "lfs_hist",
-    8192,
-    this,
-    1,
-    &this->lfs_task_handle_,
-    1
-  );
+    // ── LFS task (history persistence) ────────────────────────────────────
+    this->lfs_trigger_ = xSemaphoreCreateBinary();
+    xTaskCreatePinnedToCore(
+      EcodanDashboard::lfs_task_,
+      "lfs_hist",
+      8192,
+      this,
+      1,
+      &this->lfs_task_handle_,
+      1
+    );
+  }
 
   base_->init();
   base_->add_handler(this);
   this->load_odin_data(-1);
+  // If LFS is not mounted (e.g. wrong partition table), load_odin_data returns immediately
+  // without sizing the vectors or setting odin_data_ready_.
+  if (!this->odin_data_ready_) {
+    this->ensure_odin_vectors_();
+    this->odin_data_ready_ = true;
+  }
 }
 
 void EcodanDashboard::loop() {
   uint32_t now = millis();
-  if (now - last_history_time_ >= 60000 || last_history_time_ == 0) {
-    last_history_time_ = now;
-    record_history_();
+  if (this->lfs_mounted_) {
+    if (now - last_history_time_ >= 60000 || last_history_time_ == 0) {
+      last_history_time_ = now;
+      record_history_();
+    }
   }
 
   if (now - last_snapshot_time_ >= 1000 || last_snapshot_time_ == 0) {
@@ -96,7 +107,7 @@ void EcodanDashboard::loop() {
   }
 
   // ODIN Persistence Trigger (Moved away from NVS)
-  if (this->odin_lfs_dirty_) {
+  if (this->lfs_mounted_ && this->odin_lfs_dirty_) {
     const uint32_t LFS_FLUSH_INTERVAL_MS = LFS_FLUSH_COUNT * 60 * 1000;
     if (this->odin_lfs_last_write_ms_ == 0 || (now - this->odin_lfs_last_write_ms_) >= LFS_FLUSH_INTERVAL_MS) {
       this->odin_lfs_dirty_ = false;
@@ -159,6 +170,7 @@ void EcodanDashboard::handleRequest(AsyncWebServerRequest *request) {
     httpd_req_t *req_404 = *request;
     httpd_resp_set_status(req_404, "404 Not Found");
     httpd_resp_set_type(req_404, "text/plain");
+    httpd_resp_set_hdr(req_404, "Connection", "close");
     httpd_resp_send(req_404, "Not found", HTTPD_RESP_USE_STRLEN);
   }
 }
@@ -169,7 +181,8 @@ void EcodanDashboard::send_chunked_(AsyncWebServerRequest *request, const char *
   httpd_resp_set_status(req, "200 OK");
   httpd_resp_set_type(req, content_type);
   httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-  
+  httpd_resp_set_hdr(req, "Connection", "close");
+
   if (cache_control != nullptr) {
     httpd_resp_set_hdr(req, "Cache-Control", cache_control);
   }
@@ -221,6 +234,7 @@ void EcodanDashboard::handle_js_(AsyncWebServerRequest *request) {
     httpd_req_t *req_404 = *request;
     httpd_resp_set_status(req_404, "404 Not Found");
     httpd_resp_set_type(req_404, "text/plain");
+    httpd_resp_set_hdr(req_404, "Connection", "close");
     httpd_resp_send(req_404, "File not found", HTTPD_RESP_USE_STRLEN);
     return;
   }
@@ -234,6 +248,7 @@ void EcodanDashboard::handle_set_(AsyncWebServerRequest *request) {
   if (request->method() != HTTP_POST) {
     httpd_resp_set_status(req, "405 Method Not Allowed");
     httpd_resp_set_type(req, "text/plain");
+    httpd_resp_set_hdr(req, "Connection", "close");
     httpd_resp_send(req, "Method Not Allowed", HTTPD_RESP_USE_STRLEN);
     return;
   }
@@ -242,6 +257,7 @@ void EcodanDashboard::handle_set_(AsyncWebServerRequest *request) {
   if (content_len == 0 || content_len > 1024) {
     httpd_resp_set_status(req, "400 Bad Request");
     httpd_resp_set_type(req, "text/plain");
+    httpd_resp_set_hdr(req, "Connection", "close");
     httpd_resp_send(req, "Bad Request", HTTPD_RESP_USE_STRLEN);
     return;
   }
@@ -251,6 +267,7 @@ void EcodanDashboard::handle_set_(AsyncWebServerRequest *request) {
   if (body == nullptr) {
     httpd_resp_set_status(req, "500 Internal Server Error");
     httpd_resp_set_type(req, "text/plain");
+    httpd_resp_set_hdr(req, "Connection", "close");
     httpd_resp_send(req, "Out of Memory", HTTPD_RESP_USE_STRLEN);
     return;
   }
@@ -261,6 +278,7 @@ void EcodanDashboard::handle_set_(AsyncWebServerRequest *request) {
     free(body);
     httpd_resp_set_status(req, "400 Bad Request");
     httpd_resp_set_type(req, "text/plain");
+    httpd_resp_set_hdr(req, "Connection", "close");
     httpd_resp_send(req, "Read failed", HTTPD_RESP_USE_STRLEN);
     return;
   }
@@ -282,6 +300,7 @@ void EcodanDashboard::handle_set_(AsyncWebServerRequest *request) {
     free(body);
     httpd_resp_set_status(req, "400 Bad Request");
     httpd_resp_set_type(req, "text/plain");
+    httpd_resp_set_hdr(req, "Connection", "close");
     httpd_resp_send(req, "Missing key", HTTPD_RESP_USE_STRLEN);
     return;
   }
@@ -322,11 +341,13 @@ void EcodanDashboard::handle_set_(AsyncWebServerRequest *request) {
     httpd_resp_set_status(req, "200 OK");
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Connection", "close");
     httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
   } else {
     ESP_LOGW(TAG, "Failed to acquire action_lock_ in handle_set_ (Timeout)");
     httpd_resp_set_status(req, "503 Service Unavailable");
     httpd_resp_set_type(req, "text/plain");
+    httpd_resp_set_hdr(req, "Connection", "close");
     httpd_resp_send(req, "System busy, try again", HTTPD_RESP_USE_STRLEN);
   }
 }
@@ -650,6 +671,19 @@ void EcodanDashboard::update_snapshot_() {
     current_snapshot_.version[0] = '\0';
   }
 
+  // Local IP via esp_netif
+  {
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (!netif) netif = esp_netif_next_unsafe(nullptr);  // fallback: first available
+    esp_netif_ip_info_t ip_info{};
+    if (netif && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK && ip_info.ip.addr != 0) {
+      snprintf(current_snapshot_.local_ip, sizeof(current_snapshot_.local_ip),
+               IPSTR, IP2STR(&ip_info.ip));
+    } else {
+      current_snapshot_.local_ip[0] = '\0';
+    }
+  }
+
   xSemaphoreGive(snapshot_mutex_);
 }
 
@@ -664,6 +698,7 @@ void EcodanDashboard::handle_state_(AsyncWebServerRequest *request) {
     httpd_req_t *req_err = *request;
     httpd_resp_set_status(req_err, "503 Service Unavailable");
     httpd_resp_set_type(req_err, "text/plain");
+    httpd_resp_set_hdr(req_err, "Connection", "close");
     httpd_resp_send(req_err, "System busy, try again", HTTPD_RESP_USE_STRLEN);
     return;
   }
@@ -916,7 +951,7 @@ void EcodanDashboard::handle_state_(AsyncWebServerRequest *request) {
   p_sel("temp_sensor_source_z1", snap.sel_temp_source_z1);
   p_sel("temp_sensor_source_z2", snap.sel_temp_source_z2);
 
-  off += snprintf(buf.data() + off, BUF_SIZE - off, "\"_uptime_ms\":%u}", millis());
+  off += snprintf(buf.data() + off, BUF_SIZE - off, "\"local_ip\":\"%s\",\"_uptime_ms\":%u}", snap.local_ip, millis());
   flush();
   httpd_resp_send_chunk(req, nullptr, 0);
 }
@@ -1045,285 +1080,329 @@ void EcodanDashboard::handle_history_request_(AsyncWebServerRequest *request) {
       memset(val, 0, sizeof(val));
       if (httpd_query_key_value(query, "to", val, sizeof(val)) == ESP_OK) to_ts = (uint32_t)atol(val);
   }
+  
   // Default: last 24 hours based on Ecodan's clock
-    if (from_ts == 0) {
-        auto current_ts = this->timestamp();
-        if (current_ts != -1) {
-            from_ts = (uint32_t)(current_ts - 86400);
-            to_ts   = (uint32_t)(current_ts + 60);
-        } else {
-            ESP_LOGI(TAG, "handle_history_request_: no valid timestamp");
-        }
-    }
+  if (from_ts == 0) {
+      auto current_ts = this->timestamp();
+      if (current_ts != -1) {
+          from_ts = (uint32_t)(current_ts - 86400);
+          to_ts   = (uint32_t)(current_ts + 60);
+      } else {
+          ESP_LOGI(TAG, "handle_history_request_: no valid timestamp");
+      }
+  }
 
+  // Set standard headers
   httpd_resp_set_status(req, "200 OK");
   httpd_resp_set_type(req, "application/json");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
   httpd_resp_set_hdr(req, "Connection", "close");
 
-// ── 2. HOURLY DATA BRANCH (Circular Buffer) ──
+  // Route to the appropriate helper
   if (is_hourly) {
-      size_t current_h_count, current_h_head;
-      if (history_mutex_ == NULL || xSemaphoreTake(history_mutex_, pdMS_TO_TICKS(200)) != pdTRUE) {
-          httpd_resp_send_chunk(req, "[]", 2);
-          httpd_resp_send_chunk(req, nullptr, 0);
-          return;
-      }
-      current_h_count = hourly_count_;
-      current_h_head  = hourly_head_;
-      xSemaphoreGive(history_mutex_);
-
-      FILE *f = fopen(LFS_HOURLY_PATH, "rb");
-      if (!f || current_h_count == 0) {
-          if (f) fclose(f);
-          httpd_resp_send_chunk(req, "[]", 2);
-          httpd_resp_send_chunk(req, nullptr, 0);
-          return;
-      }
-
-      const size_t oldest_h = (current_h_count == MAX_HOURLY)
-                                ? current_h_head
-                                : (current_h_head + MAX_HOURLY - current_h_count) % MAX_HOURLY;
-
-      // Binary search: first record with timestamp >= from_ts
-      size_t lo = 0, hi = current_h_count;
-      if (from_ts > 0) {
-          while (lo < hi) {
-              size_t mid = (lo + hi) / 2;
-              size_t fidx = (oldest_h + mid) % MAX_HOURLY;
-              uint32_t ts = 0;
-              fseek(f, (long)(LFS_DATA_OFFSET + fidx * sizeof(HourlyRecord)), SEEK_SET);
-              fread(&ts, sizeof(uint32_t), 1, f);
-              if (ts < from_ts) lo = mid + 1; else hi = mid;
-          }
-      }
-      const size_t first_h = lo;
-
-      // Binary search: one past last record with timestamp <= to_ts
-      lo = first_h; hi = current_h_count;
-      if (to_ts > 0) {
-          while (lo < hi) {
-              size_t mid = (lo + hi) / 2;
-              size_t fidx = (oldest_h + mid) % MAX_HOURLY;
-              uint32_t ts = 0;
-              fseek(f, (long)(LFS_DATA_OFFSET + fidx * sizeof(HourlyRecord)), SEEK_SET);
-              fread(&ts, sizeof(uint32_t), 1, f);
-              if (ts <= to_ts) lo = mid + 1; else hi = mid;
-          }
-      }
-      const size_t last_h = lo;
-
-      if (httpd_resp_send_chunk(req, "[", 1) != ESP_OK) { fclose(f); return; }
-
-      // Heap-allocated batch buffer — 16 × 64 = 1 KB, safe for the httpd task stack.
-      constexpr size_t H_BATCH = 16;
-      auto hbatch_mem = std::unique_ptr<HourlyRecord[]>(new HourlyRecord[H_BATCH]);
-      HourlyRecord* hbatch = hbatch_mem.get();
-      bool first = true;
-      char item[256];
-
-      // Read one contiguous file segment sequentially (no per-record seek).
-      auto send_h_segment = [&](size_t file_pos, size_t n) -> bool {
-          if (fseek(f, (long)(LFS_DATA_OFFSET + file_pos * sizeof(HourlyRecord)), SEEK_SET) != 0)
-              return false;
-          size_t done = 0;
-          while (done < n) {
-              size_t chunk = std::min(n - done, H_BATCH);
-              size_t got   = fread(hbatch, sizeof(HourlyRecord), chunk, f);
-              for (size_t j = 0; j < got; j++) {
-                  if (hbatch[j].timestamp == 0 || hbatch[j].timestamp <= 1000000000UL) continue;
-                  if (!first && httpd_resp_send_chunk(req, ",", 1) != ESP_OK) return false;
-                  first = false;
-                  int len = snprintf(item, sizeof(item),
-                      "[%u,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]",
-                      hbatch[j].timestamp, hbatch[j].avg_outside,
-                      hbatch[j].total_cons, hbatch[j].total_prod,
-                      hbatch[j].odin_heat_loss, hbatch[j].odin_cop,
-                      hbatch[j].odin_cost, hbatch[j].odin_solar,
-                      hbatch[j].exp_cons, hbatch[j].exp_prod,
-                      hbatch[j].exp_room_temp, hbatch[j].actual_room_temp,
-                      hbatch[j].actual_dhw_cons, hbatch[j].actual_dhw_prod,
-                      hbatch[j].actual_standby_cons, hbatch[j].price,
-                      hbatch[j].weather, hbatch[j].batt_discharge,
-                      hbatch[j].op_mode, hbatch[j].sched_base,
-                      hbatch[j].sched_min, hbatch[j].sched_max,
-                      hbatch[j].exp_solar_kwh);
-                  if (httpd_resp_send_chunk(req, item, len) != ESP_OK) return false;
-              }
-              done += got;
-              if (got < chunk) break;
-              vTaskDelay(0); // cooperative yield per batch, no hard delay
-          }
-          return true;
-      };
-
-      if (first_h < last_h) {
-          const size_t count    = last_h - first_h;
-          const size_t seg1_pos = (oldest_h + first_h) % MAX_HOURLY;
-          const size_t seg1_len = std::min(count, MAX_HOURLY - seg1_pos);
-          const size_t seg2_len = count - seg1_len;
-          if (!send_h_segment(seg1_pos, seg1_len)) { fclose(f); return; }
-          if (seg2_len > 0 && !send_h_segment(0, seg2_len)) { fclose(f); return; }
-      }
-
-      fclose(f);
-      httpd_resp_send_chunk(req, "]", 1);
-      httpd_resp_send_chunk(req, nullptr, 0);
-      return;
+      send_hourly_history_(req, from_ts, to_ts);
+  } else {
+      send_minute_history_(req, from_ts, to_ts);
   }
+}
 
-  // ── 3. MINUTE DATA BRANCH (Circular Buffer) ──
-  size_t current_count, current_head;
-  if (history_mutex_ == NULL || xSemaphoreTake(history_mutex_, pdMS_TO_TICKS(200)) != pdTRUE) {
-      httpd_resp_send_chunk(req, "[]", 2);
-      httpd_resp_send_chunk(req, nullptr, 0);
-      return;
-  }
-  current_count  = history_count_;
-  current_head   = history_head_;
-  http_wb_count_ = lfs_write_buf_count_;
-  if (http_wb_count_ > 0) memcpy(http_wb_snap_, lfs_write_buf_, http_wb_count_ * sizeof(MinuteRecord));
-  xSemaphoreGive(history_mutex_);
+void EcodanDashboard::send_hourly_history_(httpd_req_t *req, uint32_t from_ts, uint32_t to_ts) {
+    size_t current_h_count, current_h_head;
+    if (history_mutex_ == NULL || xSemaphoreTake(history_mutex_, pdMS_TO_TICKS(200)) != pdTRUE) {
+        httpd_resp_send_chunk(req, "[]", 2);
+        httpd_resp_send_chunk(req, nullptr, 0);
+        return;
+    }
+    current_h_count = hourly_count_;
+    current_h_head  = hourly_head_;
+    xSemaphoreGive(history_mutex_);
 
-  if (current_count == 0 && http_wb_count_ == 0) {
-      httpd_resp_send_chunk(req, "[]", 2);
-      httpd_resp_send_chunk(req, nullptr, 0);
-      return;
-  }
+    FILE *f = fopen(LFS_HOURLY_PATH, "rb");
+    if (!f || current_h_count == 0) {
+        if (f) fclose(f);
+        httpd_resp_send_chunk(req, "[]", 2);
+        httpd_resp_send_chunk(req, nullptr, 0);
+        return;
+    }
 
-  FILE *f = fopen(LFS_MINUTES_PATH, "rb");
-  if (!f && current_count > 0) {
-      httpd_resp_send_chunk(req, "[]", 2);
-      httpd_resp_send_chunk(req, nullptr, 0);
-      return;
-  }
+    const size_t oldest_h = (current_h_count == MAX_HOURLY)
+                              ? current_h_head
+                              : (current_h_head + MAX_HOURLY - current_h_count) % MAX_HOURLY;
 
-  auto rec_offset = [](size_t idx) -> long { return (long)(LFS_DATA_OFFSET + idx * sizeof(MinuteRecord)); };
-  const size_t oldest_idx = (current_count == MAX_MINUTES) ? current_head : (current_head + MAX_MINUTES - current_count) % MAX_MINUTES;
+    // Binary search: first record with timestamp >= from_ts
+    size_t lo = 0, hi = current_h_count;
+    if (from_ts > 0) {
+        while (lo < hi) {
+            size_t mid = (lo + hi) / 2;
+            size_t fidx = (oldest_h + mid) % MAX_HOURLY;
+            uint32_t ts = 0;
+            fseek(f, (long)(LFS_DATA_OFFSET + fidx * sizeof(HourlyRecord)), SEEK_SET);
+            fread(&ts, sizeof(uint32_t), 1, f);
+            if (ts < from_ts) lo = mid + 1; else hi = mid;
+        }
+    }
+    const size_t first_h = lo;
 
-  size_t lo = 0, hi = current_count;
-  if (f && current_count > 0) {
-      while (lo < hi) {
-          size_t mid = (lo + hi) / 2;
-          size_t file_idx = (oldest_idx + mid) % MAX_MINUTES;
-          uint32_t ts = 0;
-          fseek(f, rec_offset(file_idx), SEEK_SET);
-          fread(&ts, sizeof(uint32_t), 1, f);
-          if (ts < from_ts) lo = mid + 1; else hi = mid;
-      }
-  }
-  size_t first_idx = lo;
+    // Binary search: one past last record with timestamp <= to_ts
+    lo = first_h; hi = current_h_count;
+    if (to_ts > 0) {
+        while (lo < hi) {
+            size_t mid = (lo + hi) / 2;
+            size_t fidx = (oldest_h + mid) % MAX_HOURLY;
+            uint32_t ts = 0;
+            fseek(f, (long)(LFS_DATA_OFFSET + fidx * sizeof(HourlyRecord)), SEEK_SET);
+            fread(&ts, sizeof(uint32_t), 1, f);
+            if (ts <= to_ts) lo = mid + 1; else hi = mid;
+        }
+    }
+    const size_t last_h = lo;
 
-  size_t lo2 = first_idx, hi2 = current_count;
-  if (f && current_count > first_idx) {
-      while (lo2 < hi2) {
-          size_t mid = (lo2 + hi2) / 2;
-          size_t file_idx = (oldest_idx + mid) % MAX_MINUTES;
-          uint32_t ts = 0;
-          fseek(f, rec_offset(file_idx), SEEK_SET);
-          fread(&ts, sizeof(uint32_t), 1, f);
-          if (ts <= to_ts) lo2 = mid + 1; else hi2 = mid;
-      }
-  }
-  size_t last_idx = lo2;
+    if (httpd_resp_send_chunk(req, "[", 1) != ESP_OK) { fclose(f); return; }
 
-  size_t wb_in_range = 0;
-  for (size_t i = 0; i < http_wb_count_; i++) {
-      if (http_wb_snap_[i].timestamp >= from_ts && http_wb_snap_[i].timestamp <= to_ts) wb_in_range++;
-  }
-  size_t total_in_range = (last_idx - first_idx) + wb_in_range;
-  size_t step = (total_in_range > 1440) ? (total_in_range / 1440) : 1;
+    constexpr size_t H_BATCH = 16;
+    auto hbatch_mem = std::unique_ptr<HourlyRecord[]>(new HourlyRecord[H_BATCH]);
+    HourlyRecord* hbatch = hbatch_mem.get();
 
-  if (httpd_resp_send_chunk(req, "[", 1) != ESP_OK) { if (f) fclose(f); return; }
+    // 2KB Output buffer
+    constexpr size_t OUT_BUF_SIZE = 2048;
+    auto out_buf = std::unique_ptr<char[]>(new char[OUT_BUF_SIZE]);
+    int out_len = 0;
 
-  constexpr size_t OUT_BUF_SIZE = 2048;
-  auto out_buf = std::unique_ptr<char[]>(new char[OUT_BUF_SIZE]);
-  int out_len = 0;
+    auto flush_out = [&]() -> bool {
+        if (out_len <= 0) return true;
+        bool ok = (httpd_resp_send_chunk(req, out_buf.get(), out_len) == ESP_OK);
+        out_len = 0;
+        return ok;
+    };
 
-  auto flush_out = [&]() -> bool {
-      if (out_len <= 0) return true;
-      bool ok = (httpd_resp_send_chunk(req, out_buf.get(), out_len) == ESP_OK);
-      out_len = 0;
-      return ok;
-  };
+    bool first = true;
+    auto send_h_segment = [&](size_t file_pos, size_t n) -> bool {
+        if (fseek(f, (long)(LFS_DATA_OFFSET + file_pos * sizeof(HourlyRecord)), SEEK_SET) != 0)
+            return false;
+        size_t done = 0;
+        while (done < n) {
+            size_t chunk = std::min(n - done, H_BATCH);
+            size_t got   = fread(hbatch, sizeof(HourlyRecord), chunk, f);
+            for (size_t j = 0; j < got; j++) {
+                if (hbatch[j].timestamp == 0 || hbatch[j].timestamp <= 1000000000UL) continue;
+                
+                if (out_len + 200 >= OUT_BUF_SIZE) {
+                    if (!flush_out()) return false;
+                }
 
-  bool first = true;
-  auto send_record = [&](const MinuteRecord &rec) -> bool {
-      if (out_len + 170 >= OUT_BUF_SIZE) {
-          if (!flush_out()) return false;
-      }
+                if (!first) out_buf.get()[out_len++] = ',';
+                first = false;
 
-      if (!first) out_buf.get()[out_len++] = ',';
-      first = false;
+                int len = snprintf(out_buf.get() + out_len, OUT_BUF_SIZE - out_len,
+                    "[%u,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]",
+                    hbatch[j].timestamp, hbatch[j].avg_outside,
+                    hbatch[j].total_cons, hbatch[j].total_prod,
+                    hbatch[j].odin_heat_loss, hbatch[j].odin_cop,
+                    hbatch[j].odin_cost, hbatch[j].odin_solar,
+                    hbatch[j].exp_cons, hbatch[j].exp_prod,
+                    hbatch[j].exp_room_temp, hbatch[j].actual_room_temp,
+                    hbatch[j].actual_dhw_cons, hbatch[j].actual_dhw_prod,
+                    hbatch[j].actual_standby_cons, hbatch[j].price,
+                    hbatch[j].weather, hbatch[j].batt_discharge,
+                    hbatch[j].op_mode, hbatch[j].sched_base,
+                    hbatch[j].sched_min, hbatch[j].sched_max,
+                    hbatch[j].exp_solar_kwh);
+                out_len += len;
+            }
+            done += got;
+            if (got < chunk) break;
+            vTaskDelay(pdMS_TO_TICKS(2));
+        }
+        return true;
+    };
 
-      int len = snprintf(out_buf.get() + out_len, OUT_BUF_SIZE - out_len,
-          "[%u,%d,%d,%d,%d,%d,%d,%d,%d,%d,%u,%d,%d,%d,%d,%d]",
-          rec.timestamp, rec.hp_feed, rec.hp_return,
-          rec.z1_sp, rec.z2_sp, rec.z1_curr, rec.z2_curr,
-          rec.z1_flow, rec.z2_flow, rec.freq, rec.flags,
-          rec.cons, rec.prod, rec.outside, rec.liquid_pipe, rec.condensing);
-      
-      out_len += len;
-      return true;
-  };
+    if (first_h < last_h) {
+        const size_t count    = last_h - first_h;
+        const size_t seg1_pos = (oldest_h + first_h) % MAX_HOURLY;
+        const size_t seg1_len = std::min(count, MAX_HOURLY - seg1_pos);
+        const size_t seg2_len = count - seg1_len;
+        if (!send_h_segment(seg1_pos, seg1_len)) { fclose(f); return; }
+        if (seg2_len > 0 && !send_h_segment(0, seg2_len)) { fclose(f); return; }
+    }
 
-  if (f && first_idx < last_idx) {
-      // Heap-allocated batch buffer — 16 × 64 = 1 KB, safe for the httpd task stack.
-      constexpr size_t M_BATCH = 16;
-      auto mbatch_mem = std::unique_ptr<MinuteRecord[]>(new MinuteRecord[M_BATCH]);
-      MinuteRecord* mbatch = mbatch_mem.get();
-      const size_t count    = last_idx - first_idx;
-      const size_t seg1_pos = (oldest_idx + first_idx) % MAX_MINUTES;
-      const size_t seg1_len = std::min(count, MAX_MINUTES - seg1_pos);
-      const size_t seg2_len = count - seg1_len;
+    flush_out();
+    fclose(f);
+    httpd_resp_send_chunk(req, "]", 1);
+    httpd_resp_send_chunk(req, nullptr, 0);
+}
 
-      // Read a contiguous file segment sequentially, sampling every `step` records.
-      // logical_base keeps step-sampling consistent across the wrap boundary.
-      auto read_m_segment = [&](size_t file_pos, size_t n, size_t logical_base) -> bool {
-          if (fseek(f, (long)(LFS_DATA_OFFSET + file_pos * sizeof(MinuteRecord)), SEEK_SET) != 0)
-              return false;
-          size_t done = 0;
-          while (done < n) {
-              size_t chunk = std::min(n - done, M_BATCH);
-              size_t got   = fread(mbatch, sizeof(MinuteRecord), chunk, f);
-              for (size_t j = 0; j < got; j++) {
-                  if ((logical_base + done + j) % step != 0) continue;
-                  if (mbatch[j].timestamp < from_ts || mbatch[j].timestamp > to_ts) continue;
-                  if (!send_record(mbatch[j])) return false;
-              }
-              done += got;
-              if (got < chunk) break;
-              vTaskDelay(0); // cooperative yield per batch, no hard delay
-          }
-          return true;
-      };
+void EcodanDashboard::send_minute_history_(httpd_req_t *req, uint32_t from_ts, uint32_t to_ts) {
+    size_t current_count, current_head;
+    if (history_mutex_ == NULL || xSemaphoreTake(history_mutex_, pdMS_TO_TICKS(200)) != pdTRUE) {
+        httpd_resp_send_chunk(req, "[]", 2);
+        httpd_resp_send_chunk(req, nullptr, 0);
+        return;
+    }
+    current_count  = history_count_;
+    current_head   = history_head_;
+    http_wb_count_ = lfs_write_buf_count_;
+    if (http_wb_count_ > 0) memcpy(http_wb_snap_, lfs_write_buf_, http_wb_count_ * sizeof(MinuteRecord));
+    xSemaphoreGive(history_mutex_);
 
-      if (!read_m_segment(seg1_pos, seg1_len, 0)) { fclose(f); return; }
-      if (seg2_len > 0 && !read_m_segment(0, seg2_len, seg1_len)) { fclose(f); return; }
-  }
-  if (f) fclose(f);
+    if (current_count == 0 && http_wb_count_ == 0) {
+        httpd_resp_send_chunk(req, "[]", 2);
+        httpd_resp_send_chunk(req, nullptr, 0);
+        return;
+    }
 
-  for (size_t i = 0; i < http_wb_count_; i++) {
-      if (http_wb_snap_[i].timestamp >= from_ts && http_wb_snap_[i].timestamp <= to_ts)
-          if (!send_record(http_wb_snap_[i])) return;
-  }
+    FILE *f = fopen(LFS_MINUTES_PATH, "rb");
+    if (!f && current_count > 0) {
+        httpd_resp_send_chunk(req, "[]", 2);
+        httpd_resp_send_chunk(req, nullptr, 0);
+        return;
+    }
 
-  flush_out();
-  httpd_resp_send_chunk(req, "]", 1);
-  httpd_resp_send_chunk(req, nullptr, 0);
+    auto rec_offset = [](size_t idx) -> long { return (long)(LFS_DATA_OFFSET + idx * sizeof(MinuteRecord)); };
+    const size_t oldest_idx = (current_count == MAX_MINUTES) ? current_head : (current_head + MAX_MINUTES - current_count) % MAX_MINUTES;
+
+    size_t lo = 0, hi = current_count;
+    if (f && current_count > 0) {
+        while (lo < hi) {
+            size_t mid = (lo + hi) / 2;
+            size_t file_idx = (oldest_idx + mid) % MAX_MINUTES;
+            uint32_t ts = 0;
+            fseek(f, rec_offset(file_idx), SEEK_SET);
+            fread(&ts, sizeof(uint32_t), 1, f);
+            if (ts < from_ts) lo = mid + 1; else hi = mid;
+        }
+    }
+    size_t first_idx = lo;
+
+    size_t lo2 = first_idx, hi2 = current_count;
+    if (f && current_count > first_idx) {
+        while (lo2 < hi2) {
+            size_t mid = (lo2 + hi2) / 2;
+            size_t file_idx = (oldest_idx + mid) % MAX_MINUTES;
+            uint32_t ts = 0;
+            fseek(f, rec_offset(file_idx), SEEK_SET);
+            fread(&ts, sizeof(uint32_t), 1, f);
+            if (ts <= to_ts) lo2 = mid + 1; else hi2 = mid;
+        }
+    }
+    size_t last_idx = lo2;
+
+    size_t wb_in_range = 0;
+    for (size_t i = 0; i < http_wb_count_; i++) {
+        if (http_wb_snap_[i].timestamp >= from_ts && http_wb_snap_[i].timestamp <= to_ts) wb_in_range++;
+    }
+    size_t total_in_range = (last_idx - first_idx) + wb_in_range;
+    size_t step = (total_in_range > 1440) ? (total_in_range / 1440) : 1;
+
+    if (httpd_resp_send_chunk(req, "[", 1) != ESP_OK) { if (f) fclose(f); return; }
+
+    constexpr size_t OUT_BUF_SIZE = 2048;
+    auto out_buf = std::unique_ptr<char[]>(new char[OUT_BUF_SIZE]);
+    int out_len = 0;
+
+    auto flush_out = [&]() -> bool {
+        if (out_len <= 0) return true;
+        bool ok = (httpd_resp_send_chunk(req, out_buf.get(), out_len) == ESP_OK);
+        out_len = 0;
+        return ok;
+    };
+
+    bool first = true;
+    auto send_record = [&](const MinuteRecord &rec) -> bool {
+        if (out_len + 170 >= OUT_BUF_SIZE) {
+            if (!flush_out()) return false;
+        }
+
+        if (!first) out_buf.get()[out_len++] = ',';
+        first = false;
+
+        int len = snprintf(out_buf.get() + out_len, OUT_BUF_SIZE - out_len,
+            "[%u,%d,%d,%d,%d,%d,%d,%d,%d,%d,%u,%d,%d,%d,%d,%d]",
+            rec.timestamp, rec.hp_feed, rec.hp_return,
+            rec.z1_sp, rec.z2_sp, rec.z1_curr, rec.z2_curr,
+            rec.z1_flow, rec.z2_flow, rec.freq, rec.flags,
+            rec.cons, rec.prod, rec.outside, rec.liquid_pipe, rec.condensing);
+        
+        out_len += len;
+        return true;
+    };
+
+    if (f && first_idx < last_idx) {
+        constexpr size_t M_BATCH = 16;
+        auto mbatch_mem = std::unique_ptr<MinuteRecord[]>(new MinuteRecord[M_BATCH]);
+        MinuteRecord* mbatch = mbatch_mem.get();
+        const size_t count    = last_idx - first_idx;
+        const size_t seg1_pos = (oldest_idx + first_idx) % MAX_MINUTES;
+        const size_t seg1_len = std::min(count, MAX_MINUTES - seg1_pos);
+        const size_t seg2_len = count - seg1_len;
+
+        auto read_m_segment = [&](size_t file_pos, size_t n, size_t logical_base) -> bool {
+            if (fseek(f, (long)(LFS_DATA_OFFSET + file_pos * sizeof(MinuteRecord)), SEEK_SET) != 0)
+                return false;
+            size_t done = 0;
+            while (done < n) {
+                size_t chunk = std::min(n - done, M_BATCH);
+                size_t got   = fread(mbatch, sizeof(MinuteRecord), chunk, f);
+                for (size_t j = 0; j < got; j++) {
+                    if ((logical_base + done + j) % step != 0) continue;
+                    if (mbatch[j].timestamp < from_ts || mbatch[j].timestamp > to_ts) continue;
+                    if (!send_record(mbatch[j])) return false;
+                }
+                done += got;
+                if (got < chunk) break;
+                vTaskDelay(pdMS_TO_TICKS(2));
+            }
+            return true;
+        };
+
+        if (!read_m_segment(seg1_pos, seg1_len, 0)) { fclose(f); return; }
+        if (seg2_len > 0 && !read_m_segment(0, seg2_len, seg1_len)) { fclose(f); return; }
+    }
+    if (f) fclose(f);
+
+    for (size_t i = 0; i < http_wb_count_; i++) {
+        if (http_wb_snap_[i].timestamp >= from_ts && http_wb_snap_[i].timestamp <= to_ts)
+            if (!send_record(http_wb_snap_[i])) return;
+    }
+
+    flush_out();
+    httpd_resp_send_chunk(req, "]", 1);
+    httpd_resp_send_chunk(req, nullptr, 0);
+}
+
+int EcodanDashboard::get_current_ecodan_day() {
+    if (this->ecodan_ == nullptr) return -1;
+    time_t ts = this->ecodan_->get_status().timestamp();
+    if (ts == -1) return -1;
+    struct tm t;
+    localtime_r(&ts, &t);
+    return t.tm_yday;
 }
 
 void EcodanDashboard::align_odin_day_(int current_day) {
-    // Ignore invalid days or boot state (-1)
-    if (current_day < 1 || current_day > 366 || this->odin_stored_day_ < 1) return;
+    // Only abort on invalid incoming days
+    if (current_day < 1 || current_day > 366) return;
+
+    // If the cache is empty/new, initialize the day tracker and exit safely.
+    if (this->odin_stored_day_ < 1) {
+        ESP_LOGI(TAG, "[align_odin_day_] Initializing odin_stored_day_ to %d", current_day);
+        this->odin_stored_day_ = current_day;
+        return;
+    }
 
     if (current_day != this->odin_stored_day_) {
         int day_delta = current_day - this->odin_stored_day_;
         
+        // Handle year wrap-around cleanly
+        if (day_delta < -300) day_delta += 365;
+        if (day_delta > 300) day_delta -= 365;
+
+        // Ignore delayed YAML updates that try to pull the day backwards
+        if (day_delta < 0) return;
+
         // Check for normal +1 day progression (or year wrap-around)
-        if (day_delta == 1 || day_delta == -364 || day_delta == -365) {
-            ESP_LOGI(TAG, "ODIN day transition (%d -> %d): shifting 72h window", this->odin_stored_day_, current_day);
+        if (day_delta > 0 && day_delta < 3) {
+            ESP_LOGI(TAG, "[align_odin_day_] ODIN day transition (%d -> %d): shifting 72h window", this->odin_stored_day_, current_day);
             auto shift_arr = [](std::vector<float>& v, float fill_val) {
                 if (v.size() != 72) return;
                 // Shift today and tomorrow -> yesterday and today
@@ -1332,26 +1411,29 @@ void EcodanDashboard::align_odin_day_(int current_day) {
                 for (int i = 48; i < 72; i++) v[i] = fill_val;
             };
             
-            shift_arr(this->odin_expected_end_temp_, NAN);
-            shift_arr(this->odin_energy_, NAN);
-            shift_arr(this->odin_production_, NAN);
-            shift_arr(this->odin_expected_temp_, NAN);
-            shift_arr(this->odin_cost_, NAN);
-            shift_arr(this->odin_battery_discharge_, 0.0f);
-            shift_arr(this->odin_sched_base_, 0.0f);
-            shift_arr(this->odin_sched_min_, 0.0f);
-            shift_arr(this->odin_sched_max_, 0.0f);
-            shift_arr(this->odin_weather_, 0.0f);
-            shift_arr(this->odin_solar_, 0.0f);
-            shift_arr(this->odin_prices_, 0.0f);
-            shift_arr(this->odin_operation_mode_, 0.0f);
-            
-            shift_arr(this->odin_actual_dhw_cons_, NAN);
-            shift_arr(this->odin_actual_dhw_prod_, NAN);
-            shift_arr(this->odin_actual_cons_, NAN);
-            shift_arr(this->odin_actual_prod_, NAN);
-            shift_arr(this->odin_actual_room_, NAN);
-            shift_arr(this->odin_actual_standby_cons_, NAN);
+            for (int d = 0; d < day_delta; d++) {
+                // All fields use NAN (-> JSON null) to mean "no forecast/data yet",
+                shift_arr(this->odin_expected_end_temp_, NAN);
+                shift_arr(this->odin_energy_, NAN);
+                shift_arr(this->odin_production_, NAN);
+                shift_arr(this->odin_expected_temp_, NAN);
+                shift_arr(this->odin_cost_, NAN);
+                shift_arr(this->odin_battery_discharge_, NAN);
+                shift_arr(this->odin_sched_base_, NAN);
+                shift_arr(this->odin_sched_min_, NAN);
+                shift_arr(this->odin_sched_max_, NAN);
+                shift_arr(this->odin_weather_, NAN);
+                shift_arr(this->odin_solar_, NAN);
+                shift_arr(this->odin_prices_, NAN);
+                shift_arr(this->odin_operation_mode_, NAN);
+                
+                shift_arr(this->odin_actual_dhw_cons_, NAN);
+                shift_arr(this->odin_actual_dhw_prod_, NAN);
+                shift_arr(this->odin_actual_cons_, NAN);
+                shift_arr(this->odin_actual_prod_, NAN);
+                shift_arr(this->odin_actual_room_, NAN);
+                shift_arr(this->odin_actual_standby_cons_, NAN);
+            }
         } else {
             // Massive jump (e.g. device was off for days). Clear stale actuals.
             ESP_LOGI(TAG, "ODIN day jump (%d -> %d): clearing old actuals", this->odin_stored_day_, current_day);
@@ -1368,8 +1450,27 @@ void EcodanDashboard::align_odin_day_(int current_day) {
     }
 }
 
+void EcodanDashboard::sync_odin_day() {
+    if (snapshot_mutex_ == NULL || xSemaphoreTake(snapshot_mutex_, pdMS_TO_TICKS(100)) != pdTRUE) return;
+
+    if (!this->odin_data_ready_) {
+        xSemaphoreGive(snapshot_mutex_);
+        return;
+    }
+
+    align_odin_day_(this->get_current_ecodan_day());
+
+    xSemaphoreGive(snapshot_mutex_);
+}
+
 void EcodanDashboard::update_actual_data(int hour, int day, float actual_cons_kwh, float actual_prod_kwh, float dhw_cons, float dhw_prod, float actual_room_temp, float standby_cons) {
     if (snapshot_mutex_ == NULL || xSemaphoreTake(snapshot_mutex_, pdMS_TO_TICKS(100)) != pdTRUE) return;
+
+    if (!this->odin_data_ready_) {
+        xSemaphoreGive(snapshot_mutex_);
+        return;
+    }
+    this->ensure_odin_vectors_();
 
     if (!std::isnan(actual_cons_kwh)) {
         if (std::isnan(dhw_cons)) dhw_cons = 0.0f;
@@ -1379,10 +1480,28 @@ void EcodanDashboard::update_actual_data(int hour, int day, float actual_cons_kw
         if (std::isnan(dhw_prod)) dhw_prod = 0.0f;
     }
     
-    // 1. Ensure the 72h window is properly aligned to today BEFORE we update arrays
+    // 1. Ensure the 72h window is properly aligned to the day this actual data
+    // belongs to BEFORE we update arrays.
     align_odin_day_(day);
 
-    int target_idx = 24 + hour; 
+    // 2. Resolve which 24h block this hour belongs to. Day-rollover timing means
+    // this call's `day` may already be yesterday relative to odin_stored_day_
+    int day_delta = day - this->odin_stored_day_;
+    if (day_delta < -300) day_delta += 365; // year wrap
+    if (day_delta > 300)  day_delta -= 365;
+
+    int day_offset;
+    if (day_delta == 0)  day_offset = 24;       // today
+    else if (day_delta == -1) day_offset = 0;   // yesterday
+    else if (day_delta == 1)  day_offset = 48;  // tomorrow (shouldn't normally happen, but handle it)
+    else {
+        ESP_LOGW(TAG, "update_actual_data: day %d is too far from odin_stored_day_ %d (delta=%d), dropping actual for hour %d",
+                 day, this->odin_stored_day_, day_delta, hour);
+        xSemaphoreGive(snapshot_mutex_);
+        return;
+    }
+
+    int target_idx = day_offset + hour;
     float hour_cost = NAN, hour_solar = NAN;
     float exp_cons = NAN, exp_prod = NAN, exp_room = NAN, price = NAN;
     float weather = NAN, batt_dis = NAN, op_mode = NAN;
@@ -1400,17 +1519,20 @@ void EcodanDashboard::update_actual_data(int hour, int day, float actual_cons_kw
             float real_mode = 0.0f; // Default OFF (0) / Standby
             if (!std::isnan(dhw_cons) && dhw_cons > 0.03f) {
                 real_mode = 1.0f; // DHW / Legionella
-            } 
+            }
             else if (!std::isnan(actual_cons_kwh) && actual_cons_kwh > 0.05f) {
                 float inst_mode = (operation_mode_ && operation_mode_->has_state()) ? operation_mode_->state : NAN;
-                
+
                 // Modes: 1=DHW, 2=Heat, 3=Cool, 6=Legionella
                 if (inst_mode == 6.0f || inst_mode == 1.0f) {
                     real_mode = 1.0f; // Legionella / DHW fallback
                 } else if (inst_mode == 3.0f) {
                     real_mode = 3.0f;
                 } else {
-                    real_mode = 2.0f;
+                    // inst_mode may have reverted to heating/standby mid-hour because
+                    // prohibit stopped cooling before the hour boundary.
+                    float planned_mode = this->odin_operation_mode_[target_idx];
+                    real_mode = (planned_mode == 3.0f) ? 3.0f : 2.0f;
                 }
             }
             this->odin_operation_mode_[target_idx] = real_mode;
@@ -1488,9 +1610,11 @@ void EcodanDashboard::update_actual_data(int hour, int day, float actual_cons_kw
     memset(hr.reserved, 0, sizeof(hr.reserved));
 
     xSemaphoreGive(snapshot_mutex_);
-    
+
     record_hourly_data(hr);
-    this->odin_lfs_dirty_ = true; 
+    // odin_lfs_dirty_ intentionally NOT set here: actual-data slots are small deltas
+    // that will be captured in the next regular flush triggered by store_odin_data.
+    // Setting it here caused a spurious second LFS write ~5min after every solver run.
 }
 
 void EcodanDashboard::store_odin_data(int current_hour, int current_day,
@@ -1516,30 +1640,7 @@ void EcodanDashboard::store_odin_data(int current_hour, int current_day,
         return;
     }
 
-    auto ensure_72 = [](std::vector<float>& v, float fill_val) {
-        if (v.size() != 72) v.assign(72, fill_val);
-    };
-
-    ensure_72(this->odin_expected_end_temp_, NAN);
-    ensure_72(this->odin_energy_, NAN);
-    ensure_72(this->odin_production_, NAN);
-    ensure_72(this->odin_expected_temp_, NAN);
-    ensure_72(this->odin_cost_, NAN);
-    ensure_72(this->odin_actual_dhw_cons_, NAN);
-    ensure_72(this->odin_actual_dhw_prod_, NAN);
-    ensure_72(this->odin_actual_cons_, NAN);
-    ensure_72(this->odin_actual_prod_, NAN);
-    ensure_72(this->odin_actual_room_, NAN);
-    ensure_72(this->odin_actual_standby_cons_, NAN);
-
-    ensure_72(this->odin_battery_discharge_, 0.0f);
-    ensure_72(this->odin_sched_base_, 0.0f);
-    ensure_72(this->odin_sched_min_, 0.0f);
-    ensure_72(this->odin_sched_max_, 0.0f);
-    ensure_72(this->odin_weather_, 0.0f);
-    ensure_72(this->odin_solar_, 0.0f);
-    ensure_72(this->odin_prices_, 0.0f);
-    ensure_72(this->odin_operation_mode_, 0.0f);
+    this->ensure_odin_vectors_();
 
     if (!this->odin_data_ready_) {
         this->odin_data_ready_ = true;
@@ -1562,10 +1663,9 @@ void EcodanDashboard::store_odin_data(int current_hour, int current_day,
         if (i < (int)prices.size()     && !std::isnan(prices[i]))      this->odin_prices_[target_idx]     = prices[i];
 
         // Calculated data (only overwrite future hours or empty slots to protect "past" history)
-        bool is_future = (i > current_hour); 
         bool is_empty_slot = std::isnan(this->odin_production_[target_idx]);
 
-        if (is_future || is_empty_slot) {
+        if (i > current_hour || (i == current_hour && is_empty_slot)) {
             if (i < (int)energy.size()     && !std::isnan(energy[i]))      this->odin_energy_[target_idx]            = energy[i];
             if (i < (int)production.size() && !std::isnan(production[i]))  this->odin_production_[target_idx]        = production[i];
             if (i < (int)cost.size()       && !std::isnan(cost[i]))        this->odin_cost_[target_idx]              = cost[i];
@@ -1579,7 +1679,7 @@ void EcodanDashboard::store_odin_data(int current_hour, int current_day,
     this->last_run_stats_ = run_stats;
 
     xSemaphoreGive(this->snapshot_mutex_);
-    ESP_LOGI(TAG, "ODIN arrays stored (hour=%d, day=%d)", current_hour, current_day);
+    ESP_LOGI(TAG, "ODIN arrays stored (hour=%d, day=%d, odin_stored_day=%d)", current_hour, current_day, this->odin_stored_day_);
     this->odin_lfs_dirty_ = true;
 }
 

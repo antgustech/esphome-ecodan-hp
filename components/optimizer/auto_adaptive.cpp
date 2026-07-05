@@ -228,12 +228,28 @@ namespace esphome
                 } else {
                     calculated_flow = actual_return_temp + target_delta;
                 }
-                calculated_flow = this->round_nearest(calculated_flow);
 
-                // Predictive boost adjustment
+                // Predictive boost adjustment (fetch feed temp once; reused by buffer guard below)
                 auto &pcp_adj = (zone_i == 1) ? this->pcp_adjustment_z2_ : this->pcp_adjustment_z1_;
                 float actual_flow_temp = this->get_feed_temp(
                     (zone_i == 0) ? OptimizerZone::ZONE_1 : OptimizerZone::ZONE_2);
+
+                // Buffer short-cycle guard: if actual ΔT (feed − return) already exceeds
+                // the target ΔT, (return + target_delta) falls below the current feed
+                // temperature — sending that setpoint would stop the compressor.
+                // Hold at actual feed instead.
+                if (status.has_independent_zone_temps() && !std::isnan(actual_flow_temp)
+                    && (actual_flow_temp - actual_return_temp) > target_delta && calculated_flow < actual_flow_temp) {
+
+                    ESP_LOGI(OPTIMIZER_TAG,
+                        "[Buffer] Z%d Short-cycle guard (Heating): ΔT actual %.2f > target %.2f — held %.2f → %.2f",
+                        (zone_i + 1),
+                        actual_flow_temp - actual_return_temp, target_delta,
+                        calculated_flow, actual_flow_temp);
+                    calculated_flow = actual_flow_temp;
+                }
+
+                calculated_flow = this->round_nearest(calculated_flow);
 
                 if (pcp_adj > 0.0f) {
                     if ((actual_flow_temp - calculated_flow) >= 1.0f) {
@@ -248,11 +264,11 @@ namespace esphome
             // Clamp + step-down (order depends on post-DHW window)
             if (this->is_post_dhw_window(status)) {
                 calculated_flow = this->clamp_flow_temp(calculated_flow, zone_min, zone_max);
-                calculated_flow = this->enforce_step_down(status,
+                calculated_flow = this->enforce_step_limit(status,
                     this->get_feed_temp((zone_i == 0) ? OptimizerZone::ZONE_1 : OptimizerZone::ZONE_2),
                     calculated_flow);
             } else {
-                calculated_flow = this->enforce_step_down(status,
+                calculated_flow = this->enforce_step_limit(status,
                     this->get_feed_temp((zone_i == 0) ? OptimizerZone::ZONE_1 : OptimizerZone::ZONE_2),
                     calculated_flow);
                 calculated_flow = this->clamp_flow_temp(calculated_flow, zone_min, zone_max);
@@ -277,6 +293,19 @@ namespace esphome
                 calculated_flow = this->state_.cooling_smart_start_temp->state;
             } else {
                 calculated_flow = actual_return_temp - target_delta_t;
+
+                float actual_flow_temp = this->get_feed_temp((zone_i == 0) ? OptimizerZone::ZONE_1 : OptimizerZone::ZONE_2);
+                if (status.has_independent_zone_temps() && !std::isnan(actual_flow_temp)
+                    && (actual_return_temp - actual_flow_temp) > target_delta_t && calculated_flow > actual_flow_temp) {
+
+                    ESP_LOGI(OPTIMIZER_TAG,
+                        "[Buffer] Z%d Short-cycle guard (Cooling): ΔT actual %.2f > target %.2f — held %.2f → %.2f",
+                        (zone_i + 1),
+                        actual_return_temp - actual_flow_temp, target_delta_t,
+                        calculated_flow, actual_flow_temp);
+                    calculated_flow = actual_flow_temp;
+                }
+
                 ESP_LOGD(OPTIMIZER_TAG, "Z%d COOLING: calc=%.1f°C (return %.1f - delta %.1f)",
                          (zone_i + 1), calculated_flow, actual_return_temp, target_delta_t);
             }
@@ -290,10 +319,25 @@ namespace esphome
                     min_cool_target = state_.minimum_cooling_flow_temp_z2->state;
             }
 
-            calculated_flow = this->clamp_flow_temp(calculated_flow,
-                                                    min_cool_target,
-                                                    this->state_.cooling_smart_start_temp->state);
-            
+            calculated_flow = this->enforce_step_limit(status,
+                    this->get_feed_temp((zone_i == 0) ? OptimizerZone::ZONE_1 : OptimizerZone::ZONE_2),
+                    calculated_flow);
+
+            // smart_start caps the flow on startup (water still warm) to avoid a slam-start.
+            bool cooling_active = this->is_cooling_active(status);
+            if (!cooling_active) {
+                float smart_start = this->state_.cooling_smart_start_temp->state;
+                if (min_cool_target > smart_start) {
+                    ESP_LOGW(OPTIMIZER_TAG,
+                        "Z%d COOLING: min_cool_target (%.1f) > smart_start (%.1f) — clamping to min_cool_target.",
+                        (zone_i + 1), min_cool_target, smart_start);
+                    smart_start = min_cool_target;
+                }
+                calculated_flow = this->clamp_flow_temp(calculated_flow, min_cool_target, smart_start);
+            } else {
+                calculated_flow = std::max(calculated_flow, min_cool_target);
+            }
+
             return calculated_flow;
         }
 
@@ -367,7 +411,7 @@ namespace esphome
             if (solver_enabled) {
                 auto [solver_load_ratio, solver_heatpump_off, solver_operating_mode, current_hour] = this->resolve_solver_result_(room_target_temp, room_temp);
                 
-                if (solver_operating_mode == OptimizerOperationMode::DHW_ON) {
+                if (solver_operating_mode == OptimizerOperationMode::DHW_ON || solver_operating_mode == OptimizerOperationMode::LEGIONELLA_PREVENTION) {
                     return; 
                 }
 
