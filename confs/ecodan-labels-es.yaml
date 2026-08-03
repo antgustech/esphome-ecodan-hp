@@ -132,10 +132,11 @@ substitutions:
   status_short_cycle_lockout: 'Ciclo corto: Bloqueo'
   minimum_compressor_on_time: 'Ciclo corto: Tiempo mínimo de compresor'
   lockout_duration: 'Ciclo corto: Duración del bloqueo (min)'
+  lockout_strategy: 'Ciclo corto: Estrategia de bloqueo'
+  lockout_strategy_option_server_control: 'Control del servidor'
+  lockout_strategy_option_flow_control: 'Control de flujo'
   short_cycle_mitigation_button: 'Ciclo corto: Cancelar bloqueo'
   predictive_short_cycle_control_enabled: 'Ciclo corto: Prevención Predictiva'
-  predictive_short_cycle_high_delta_time_window: 'Ciclo corto: Duración de Delta Alto'
-  predictive_short_cycle_high_delta_threshold: 'Ciclo corto: Umbral Alto de Delta'
   status_predictive_boost_active: 'Ciclo corto: Impulso Predictivo Activo'
   auto_adaptive_control_enabled: 'Autoadaptativo: Control'
   maximum_heating_flow_temp: 'Autoadaptativo: Temp. Máx. de Flujo Calefacción'
@@ -192,3 +193,4 @@ substitutions:
   num_raw_cool_elec_consumed: "Consumo eléct. refrigeración (Bruto)"
   num_raw_cool_runtime_hours: "Tiempo func. refrigeración (Bruto)"
   num_raw_cool_avg_outside_temp: "Temp. ext. media refrig. (Bruto)"
+  num_raw_cool_avg_room_temp: "Temp. media habitación (frío bruto)"

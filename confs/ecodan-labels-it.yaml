@@ -132,10 +132,11 @@ substitutions:
   status_short_cycle_lockout: 'Ciclo breve: Blocco'
   minimum_compressor_on_time: 'Ciclo breve: Tempo minimo compressore'
   lockout_duration: 'Ciclo breve: Durata blocco (min)'
+  lockout_strategy: 'Ciclo breve: Strategia di blocco'
+  lockout_strategy_option_server_control: 'Controllo server'
+  lockout_strategy_option_flow_control: 'Controllo flusso'
   short_cycle_mitigation_button: 'Ciclo breve: Annulla blocco'
   predictive_short_cycle_control_enabled: 'Ciclo breve: Prevenzione Predittiva'
-  predictive_short_cycle_high_delta_time_window: 'Ciclo breve: Durata Delta Elevato'
-  predictive_short_cycle_high_delta_threshold: 'Ciclo breve: Soglia Delta Alta'
   status_predictive_boost_active: 'Ciclo breve: Boost Predittivo Attivo'
   auto_adaptive_control_enabled: 'Autoadattivo: Controllo'
   maximum_heating_flow_temp: 'Autoadattivo: Temp. Max. Mandata Riscaldamento'
@@ -192,3 +193,4 @@ substitutions:
   num_raw_cool_elec_consumed: "Consumo elet. raffredd. (Grezzo)"
   num_raw_cool_runtime_hours: "Tempo funz. raffreddamento (Grezzo)"
   num_raw_cool_avg_outside_temp: "Temp. est. media raffredd. (Grezzo)"
+  num_raw_cool_avg_room_temp: "Temp. media stanza raffreddamento grezza"

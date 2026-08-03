@@ -264,6 +264,17 @@ header {
   }
   .ctrl-card.collapsed .collapse-icon { transform: rotate(-90deg); }
   .ctrl-card.collapsed .collapsible-content { display: none; }
+  .sub-label-toggle { cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none; transition: color 0.2s; }
+  .sub-label-toggle:hover { color: var(--text); }
+  .sub-card.collapsed .collapse-icon { transform: rotate(-90deg); }
+  .sub-card.collapsed .sub-card-body { display: none; }
+
+  #view-system .section-title { cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+  #view-system .section-title:hover { color: var(--text); }
+  #view-system .ctrl-card.collapsed .collapse-icon { transform: rotate(-90deg); }
+  #view-system .ctrl-card.collapsed .ctrl-card-body { display: none; }
+  #view-system > .ctrl-card { margin-bottom: 14px; }
+  #view-system > .ctrl-card:last-child { margin-bottom: 0; }
 
   /* ── Physics Card Tabs & Steppers ── */
   .physics-card .step-input { width: 72px; font-size: 12px; }
@@ -271,6 +282,18 @@ header {
   .phys-tabs button { flex: 1; background: transparent; border: none; color: var(--text3); padding: 8px 0; border-radius: 6px; cursor: pointer; font-family: var(--sans); font-size: 13px; transition: 0.2s; }
   .phys-tabs button.active-heat { background: var(--heat); color: #fff; font-weight: 600; }
   .phys-tabs button.active-cool { background: var(--cool); color: #fff; font-weight: 600; }
+  .condensation-warning {
+    display: none;
+    background: rgba(255, 176, 32, 0.08);
+    border: 1px solid rgba(255, 176, 32, 0.35);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-top: 10px;
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--warn);
+    line-height: 1.5;
+  }
 </style>
 </head>
 <body>
@@ -404,7 +427,7 @@ header {
     <button class="tab-btn active" onclick="switchTab('monitor', this)">Monitor</button>
     <button class="tab-btn" onclick="switchTab('settings', this)">Settings</button>
     <button class="tab-btn" id="tab-btn-solver" style="display:none;" onclick="switchTab('solver', this)">Solver</button>
-    <button class="tab-btn" onclick="switchTab('logs', this)">Logs</button>
+    <button class="tab-btn" onclick="switchTab('system', this)">System</button>
   </nav>
 </div>
 
@@ -543,19 +566,20 @@ header {
     
     <div class="ctrl-card" id="card-z1">
       <div class="section-title">Zone 1</div>
-      <div class="ctrl-row"><span class="ctrl-label">Operating Mode</span><select class="ctrl-select" id="sel-z1mode" onchange="sendSelect('operating_mode_z1', this)"><option>Heat Target Temperature</option><option>Heat Flow Temperature</option><option>Heat Compensation Curve</option><option>Cool Target Temperature</option><option>Cool Flow Temperature</option><option>Floor Dry Up</option><option>Cool Compensation Curve</option></select></div>
+      <div class="ctrl-row"><span class="ctrl-label param-label">Operating Mode<span class="tip-icon">?</span><span class="tip-box">The Ecodan controller's own operating mode for this zone. Auto-Adaptive (below) only works in a Flow Temperature mode.</span></span><select class="ctrl-select" id="sel-z1mode" onchange="sendSelect('operating_mode_z1', this)"><option>Heat Target Temperature</option><option>Heat Flow Temperature</option><option>Heat Compensation Curve</option><option>Cool Target Temperature</option><option>Cool Flow Temperature</option><option>Floor Dry Up</option><option>Cool Compensation Curve</option></select></div>
+      <div class="condensation-warning" id="condensation-warning-z1">⚠ Cool Target Temperature can drive the flow temperature very low, creating a high risk of condensation on the emitters.</div>
       
       <div id="flow-z1-area" style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 15px; background: var(--bg2);">
         <div class="sub-label" style="margin-top: 0; border: none; padding-bottom: 10px;">Flow Climate Z1</div>
         <div style="display:flex; align-items:flex-end; gap:14px; margin-bottom:10px;">
           <div><div class="stat-label">Current</div><div class="big-temp" style="font-size:32px" id="flow-z1-current">—<span>°C</span></div></div>
-          <div style="flex:1;"><div class="stat-label">Setpoint</div><div class="stepper"><button class="step-btn" onclick="step('flow-z1-sp', -0.1)">−</button><div class="step-val" style="font-size:18px; min-width:52px" id="flow-z1-sp-val">—</div><button class="step-btn" onclick="step('flow-z1-sp', +0.1)">+</button></div></div>
+          <div style="flex:1;"><div class="stat-label">Setpoint</div><div class="stepper"><button class="step-btn" onclick="step('flow-z1-sp', -0.1)">−</button><input type="number" class="step-input" style="font-size:18px; min-width:52px" id="flow-z1-sp-val" onchange="manualInput('flow-z1-sp', this.value)"><button class="step-btn" onclick="step('flow-z1-sp', +0.1)">+</button></div></div>
         </div>
         <button class="send-btn" id="btn-flow-z1" onclick="sendFlow('z1', this)" style="margin-bottom:0;">Apply Flow Z1</button>
       </div>
       
       <div class="ctrl-row" style="margin-top: 15px; border-bottom: none; padding-bottom: 0;">
-        <span class="ctrl-label">Use Room Thermostat Z1</span>
+        <span class="ctrl-label param-label">Use Room Thermostat Z1<span class="tip-icon">?</span><span class="tip-box">Turn on when using MRC or Wireless thermostat without the virtual thermostat.</span></span>
         <label class="toggle-wrap">
           <input type="checkbox" id="ui-room-z1" onchange="sendUI('z1', this.checked)">
           <span class="toggle-slider"></span>
@@ -567,7 +591,7 @@ header {
           <span id="dot-z1" class="status-dot"></span>Virtual Thermostat Z1
         </div>
 
-        <div class="ctrl-row"><span class="ctrl-label">Thermostat Mode</span><select class="ctrl-select" id="sel-z1-vmode" onchange="sendVMode('z1', this)"><option value="heat">Heat</option><option value="cool">Cool</option><option value="off">Off</option></select></div>
+        <div class="ctrl-row"><span class="ctrl-label param-label">Thermostat Mode<span class="tip-icon">?</span><span class="tip-box">Heat/Cool/Off for the Virtual Thermostat below. Must match what the heat pump is actually doing — set to Off if you want to control the relay manually.</span></span><select class="ctrl-select" id="sel-z1-vmode" onchange="sendVMode('z1', this)"><option value="heat">Heat</option><option value="cool">Cool</option><option value="off">Off</option></select></div>
         <div class="ctrl-row" style="margin-bottom: 10px; padding-bottom: 12px;">
           <span class="ctrl-label param-label">Temp Sensor Source<span class="tip-icon">?</span>
             <span class="tip-box">
@@ -583,9 +607,9 @@ header {
         
         <div style="display:flex; align-items:flex-end; gap:14px; margin-bottom:10px;">
           <div><div class="stat-label">Current</div><div class="big-temp" style="font-size:32px" id="z1-current">—<span>°C</span></div></div>
-          <div style="flex:1;"><div class="stat-label">Setpoint</div><div class="stepper"><button class="step-btn" onclick="step('z1-sp', -0.1)">−</button><div class="step-val" style="font-size:18px; min-width:52px" id="z1-sp-val">—</div><button class="step-btn" onclick="step('z1-sp', +0.1)">+</button></div></div>
+          <div style="flex:1;"><div class="stat-label">Setpoint</div><div class="stepper"><button class="step-btn" onclick="step('z1-sp', -0.1)">−</button><input type="number" class="step-input" style="font-size:18px; min-width:52px" id="z1-sp-val" onchange="manualInput('z1-sp', this.value)"><button class="step-btn" onclick="step('z1-sp', +0.1)">+</button></div></div>
         </div>
-        <div class="ctrl-row"><span class="ctrl-label">Hysteresis &nbsp;<span id="z1-hyst-val" style="color:var(--accent);font-family:var(--mono)">—</span></span><input type="range" class="ctrl-range" id="z1-hyst" min="0.1" max="3.0" step="0.1" style="max-width:140px" oninput="hystInput('z1')"></div>
+        <div class="ctrl-row"><span class="ctrl-label param-label">Hysteresis<span class="tip-icon">?</span><span class="tip-box">Deadband around the setpoint before the Virtual Thermostat switches the heat pump on or off. Wider = fewer on/off cycles but more temperature swing; narrower = tighter control but more cycling.</span></span> &nbsp;<span id="z1-hyst-val" style="color:var(--accent);font-family:var(--mono)">—</span><input type="range" class="ctrl-range" id="z1-hyst" min="0.1" max="3.0" step="0.1" style="max-width:140px" oninput="hystInput('z1')"></div>
         <button class="send-btn" id="btn-z1" onclick="sendZone('z1', this)" style="margin-bottom:0">Apply Virtual Thermostat Z1</button>
       </div>
 
@@ -595,7 +619,7 @@ header {
         </div>
         <div style="display:flex; align-items:flex-end; gap:14px; margin-bottom:10px;">
           <div><div class="stat-label">Current</div><div class="big-temp" style="font-size:32px" id="room-z1-current">—<span>°C</span></div></div>
-          <div style="flex:1;"><div class="stat-label">Setpoint</div><div class="stepper"><button class="step-btn" onclick="step('room-z1-sp', -0.5)">−</button><div class="step-val" style="font-size:18px; min-width:52px" id="room-z1-sp-val">—</div><button class="step-btn" onclick="step('room-z1-sp', +0.5)">+</button></div></div>
+          <div style="flex:1;"><div class="stat-label">Setpoint</div><div class="stepper"><button class="step-btn" onclick="step('room-z1-sp', -0.5)">−</button><input type="number" class="step-input" style="font-size:18px; min-width:52px" id="room-z1-sp-val" onchange="manualInput('room-z1-sp', this.value)"><button class="step-btn" onclick="step('room-z1-sp', +0.5)">+</button></div></div>
         </div>
         <button class="send-btn" id="btn-room-z1" onclick="sendRoom('z1', this)" style="margin-bottom:0;">Apply Room Thermostat Z1</button>
       </div>
@@ -603,19 +627,20 @@ header {
 
     <div class="ctrl-card" id="card-z2" style="display:none;">
       <div class="section-title">Zone 2</div>
-      <div class="ctrl-row"><span class="ctrl-label">Operating Mode</span><select class="ctrl-select" id="sel-z2mode" onchange="sendSelect('operating_mode_z2', this)"><option>Heat Target Temperature</option><option>Heat Flow Temperature</option><option>Heat Compensation Curve</option><option>Cool Target Temperature</option><option>Cool Flow Temperature</option><option>Floor Dry Up</option><option>Cool Compensation Curve</option></select></div>
+      <div class="ctrl-row"><span class="ctrl-label param-label">Operating Mode<span class="tip-icon">?</span><span class="tip-box">The Ecodan controller's own operating mode for this zone. Auto-Adaptive (below) only works in a Flow Temperature mode.</span></span><select class="ctrl-select" id="sel-z2mode" onchange="sendSelect('operating_mode_z2', this)"><option>Heat Target Temperature</option><option>Heat Flow Temperature</option><option>Heat Compensation Curve</option><option>Cool Target Temperature</option><option>Cool Flow Temperature</option><option>Floor Dry Up</option><option>Cool Compensation Curve</option></select></div>
+      <div class="condensation-warning" id="condensation-warning-z2">⚠ Cool Target Temperature can drive the flow temperature very low, creating a high risk of condensation on the emitters.</div>
 
       <div id="flow-z2-area" style="display:none; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 15px; background: var(--bg2);">
         <div class="sub-label" style="margin-top: 0; border: none; padding-bottom: 10px;">Flow Climate Z2</div>
         <div style="display:flex; align-items:flex-end; gap:14px; margin-bottom:10px;">
           <div><div class="stat-label">Current</div><div class="big-temp" style="font-size:32px" id="flow-z2-current">—<span>°C</span></div></div>
-          <div style="flex:1;"><div class="stat-label">Setpoint</div><div class="stepper"><button class="step-btn" onclick="step('flow-z2-sp', -0.1)">−</button><div class="step-val" style="font-size:18px; min-width:52px" id="flow-z2-sp-val">—</div><button class="step-btn" onclick="step('flow-z2-sp', +0.1)">+</button></div></div>
+          <div style="flex:1;"><div class="stat-label">Setpoint</div><div class="stepper"><button class="step-btn" onclick="step('flow-z2-sp', -0.1)">−</button><input type="number" class="step-input" style="font-size:18px; min-width:52px" id="flow-z2-sp-val" onchange="manualInput('flow-z2-sp', this.value)"><button class="step-btn" onclick="step('flow-z2-sp', +0.1)">+</button></div></div>
         </div>
         <button class="send-btn" id="btn-flow-z2" onclick="sendFlow('z2', this)" style="margin-bottom:0;">Apply Flow Z2</button>
       </div>
 
       <div class="ctrl-row" style="margin-top: 15px; border-bottom: none; padding-bottom: 0;">
-        <span class="ctrl-label">Use Room Thermostat Z2</span>
+        <span class="ctrl-label param-label">Use Room Thermostat Z2<span class="tip-icon">?</span><span class="tip-box">Turn on when using MRC or Wireless thermostat without the virtual thermostat.</span></span>
         <label class="toggle-wrap">
           <input type="checkbox" id="ui-room-z2" onchange="sendUI('z2', this.checked)">
           <span class="toggle-slider"></span>
@@ -627,7 +652,7 @@ header {
           <span id="dot-z2" class="status-dot"></span>Virtual Thermostat Z2
         </div>
 
-        <div class="ctrl-row"><span class="ctrl-label">Thermostat Mode</span><select class="ctrl-select" id="sel-z2-vmode" onchange="sendVMode('z2', this)"><option value="heat">Heat</option><option value="cool">Cool</option><option value="off">Off</option></select></div>
+        <div class="ctrl-row"><span class="ctrl-label param-label">Thermostat Mode<span class="tip-icon">?</span><span class="tip-box">Heat/Cool/Off for the Virtual Thermostat below. Must match what the heat pump is actually doing — set to Off if you want to control the relay manually.</span></span><select class="ctrl-select" id="sel-z2-vmode" onchange="sendVMode('z2', this)"><option value="heat">Heat</option><option value="cool">Cool</option><option value="off">Off</option></select></div>
         <div class="ctrl-row" style="margin-bottom: 10px; padding-bottom: 12px;">
           <span class="ctrl-label param-label">Temp Sensor Source<span class="tip-icon">?</span>
             <span class="tip-box">
@@ -643,9 +668,9 @@ header {
 
         <div style="display:flex; align-items:flex-end; gap:14px; margin-bottom:10px;">
           <div><div class="stat-label">Current</div><div class="big-temp" style="font-size:32px" id="z2-current">—<span>°C</span></div></div>
-          <div style="flex:1;"><div class="stat-label">Setpoint</div><div class="stepper"><button class="step-btn" onclick="step('z2-sp', -0.1)">−</button><div class="step-val" style="font-size:18px; min-width:52px" id="z2-sp-val">—</div><button class="step-btn" onclick="step('z2-sp', +0.1)">+</button></div></div>
+          <div style="flex:1;"><div class="stat-label">Setpoint</div><div class="stepper"><button class="step-btn" onclick="step('z2-sp', -0.1)">−</button><input type="number" class="step-input" style="font-size:18px; min-width:52px" id="z2-sp-val" onchange="manualInput('z2-sp', this.value)"><button class="step-btn" onclick="step('z2-sp', +0.1)">+</button></div></div>
         </div>
-        <div class="ctrl-row"><span class="ctrl-label">Hysteresis &nbsp;<span id="z2-hyst-val" style="color:var(--accent);font-family:var(--mono)">—</span></span><input type="range" class="ctrl-range" id="z2-hyst" min="0.1" max="3.0" step="0.1" style="max-width:140px" oninput="hystInput('z2')"></div>
+        <div class="ctrl-row"><span class="ctrl-label param-label">Hysteresis<span class="tip-icon">?</span><span class="tip-box">Deadband around the setpoint before the Virtual Thermostat switches the heat pump on or off. Wider = fewer on/off cycles but more temperature swing; narrower = tighter control but more cycling.</span></span> &nbsp;<span id="z2-hyst-val" style="color:var(--accent);font-family:var(--mono)">—</span><input type="range" class="ctrl-range" id="z2-hyst" min="0.1" max="3.0" step="0.1" style="max-width:140px" oninput="hystInput('z2')"></div>
         <button class="send-btn" id="btn-z2" onclick="sendZone('z2', this)" style="margin-bottom:0">Apply Virtual Thermostat Z2</button>
       </div>
 
@@ -655,11 +680,134 @@ header {
         </div>
         <div style="display:flex; align-items:flex-end; gap:14px; margin-bottom:10px;">
           <div><div class="stat-label">Current</div><div class="big-temp" style="font-size:32px" id="room-z2-current">—<span>°C</span></div></div>
-          <div style="flex:1;"><div class="stat-label">Setpoint</div><div class="stepper"><button class="step-btn" onclick="step('room-z2-sp', -0.5)">−</button><div class="step-val" style="font-size:18px; min-width:52px" id="room-z2-sp-val">—</div><button class="step-btn" onclick="step('room-z2-sp', +0.5)">+</button></div></div>
+          <div style="flex:1;"><div class="stat-label">Setpoint</div><div class="stepper"><button class="step-btn" onclick="step('room-z2-sp', -0.5)">−</button><input type="number" class="step-input" style="font-size:18px; min-width:52px" id="room-z2-sp-val" onchange="manualInput('room-z2-sp', this.value)"><button class="step-btn" onclick="step('room-z2-sp', +0.5)">+</button></div></div>
         </div>
         <button class="send-btn" id="btn-room-z2" onclick="sendRoom('z2', this)" style="margin-bottom:0;">Apply Room Thermostat Z2</button>
       </div>
     </div>
+    <div class="ctrl-card" id="card-aa">
+      <div class="section-title">Auto Adaptive</div>
+      
+      <div style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 10px; background: var(--bg2);">
+        <div class="sub-label" style="margin-top: 0; border: none; padding-bottom: 5px;">General Settings</div>
+        <div class="ctrl-row"><span class="ctrl-label param-label">Enable AA Control<span class="tip-icon">?</span><span class="tip-box">Master switch for Asgard's Auto-Adaptive flow-temperature algorithm.</span></span><label class="toggle-wrap"><input type="checkbox" id="sw-aa" onchange="sendSwitch('auto_adaptive_control_enabled', this.checked)"><span class="toggle-slider"></span></label></div>
+        <div class="ctrl-row"><span class="ctrl-label param-label">Defrost Mitigation<span class="tip-icon">?</span><span class="tip-box">Adjusts Auto-Adaptive behaviour in conditions where ice formation on the outdoor unit is likely, to reduce defrost frequency and its associated temperature dips.</span></span><label class="toggle-wrap"><input type="checkbox" id="sw-dm" onchange="sendSwitch('defrost_risk_handling_enabled', this.checked)"><span class="toggle-slider"></span></label></div>
+        <div class="ctrl-row" style="border-bottom: none; padding-bottom: 0;"><span class="ctrl-label param-label">Smart Boost<span class="tip-icon">?</span><span class="tip-box">Temporarily raises the flow-temperature target when the room is stagnating below setpoint, to recover faster than gradual adaptive control alone would.</span></span><label class="toggle-wrap"><input type="checkbox" id="sw-sb" onchange="sendSwitch('smart_boost_enabled', this.checked)"><span class="toggle-slider"></span></label></div>
+      </div>
+
+
+      <div style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 15px; background: var(--bg2);">
+        
+
+        <div class="sub-label" style="margin-top: 0; border: none; padding-bottom: 5px;">General Zone Settings</div>
+        <div class="ctrl-row">
+          <span class="ctrl-label param-label">Heating System Type<span class="tip-icon">?</span><span class="tip-box">Your emitter type — underfloor heating, radiators, or a mix. Used to set safe min/max flow-temperature deltas and defrost-recovery timing for the Auto-Adaptive algorithm. The "*" are the lineair curve versions.</span></span>
+          <select class="ctrl-select" id="sel-hst" onchange="sendSelect('heating_system_type', this)">
+            <option value="0">UFH</option>
+            <option value="1">UFH *</option>
+            <option value="2">UFH + Radiators</option>
+            <option value="3">UFH + Radiators *</option>
+            <option value="4">Radiators</option>
+            <option value="5">Radiators *</option>
+          </select>
+        </div>
+
+        <div class="ctrl-row" style="border-bottom: none; padding-bottom: 0;"><span class="ctrl-label param-label">Setpoint Bias<span class="tip-icon">?</span><span class="tip-box">A flat offset added to whatever flow temperature Auto-Adaptive calculates. Positive if the room consistently runs cold, negative if it consistently overshoots.</span></span><div class="stepper"><button class="step-btn" onclick="step('aa-bias', -0.1)">−</button><input type="number" class="step-input" id="aa-bias-val" onchange="manualInput('aa-bias', this.value)"><button class="step-btn" onclick="step('aa-bias', +0.1)">+</button></div></div>
+        <div class="ctrl-row"><span class="ctrl-label param-label">Global Smart Start Temp<span class="tip-icon">?</span><span class="tip-box">Ceiling on the flow temperature for the first command when a cooling cycle starts, so the system doesn't demand a fully-cold flow while the emitter water is still warm from sitting idle. Only applies before the compressor is actively cooling — once it's running, this cap is lifted and the algorithm targets the true calculated flow. Shared across both zones.</span></span><div class="stepper"><button class="step-btn" onclick="step('cool-start-z1', -0.5)">−</button><input type="number" class="step-input" id="cool-start-z1-val" onchange="manualInput('cool-start-z1', this.value)"><button class="step-btn" onclick="step('cool-start-z1', +0.5)">+</button></div></div>
+        <div class="sub-label" style="margin-top: 24px; padding-top: 16px; border-top: 1px dashed var(--border); padding-bottom: 5px;">Settings Z1</div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label param-label">Room Temp Source Z1<span class="tip-icon">?</span>
+            <span class="tip-box">
+              <span class="tip-unit">Room Thermostat</span>MRC or Wireless thermostat.<br><br>
+              <span class="tip-unit">HA / REST API</span>Reads temp pushed via REST API or HA. ('number.temperature_feedback_z1')<br><br>
+              <span class="tip-unit">Asgard Virtual Thermostat</span>Uses the Virtual Thermostat.
+            </span>
+          </span>
+          <select class="ctrl-select" id="sel-z1src" onchange="sendSelect('room_temp_source_z1', this)">
+            <option>Room Thermostat</option><option>Home Assistant / REST API</option><option>Asgard Virtual Thermostat</option>
+          </select>
+        </div>
+
+        <div class="ctrl-row" id="row-z1src-temp">
+          <span class="ctrl-label param-label">Room Temp Value<span class="tip-icon">?</span><span class="tip-box">Live temperature of the selected Room Temp Source above — the value Auto-Adaptive actually uses for this zone.</span></span>
+          <span class="ctrl-value" id="z1src-temp" style="font-weight:600; font-family:var(--mono);">—</span>
+        </div>
+        <div class="ctrl-row" id="row-z1-fb" style="display:none;">
+          <span class="ctrl-label param-label">HA / REST API Temp<span class="tip-icon">?</span><span class="tip-box">Room temperature pushed in via Home Assistant or the REST API. Used as the Room Temp Source when 'Home Assistant / REST API' is selected.</span></span>
+          <div class="stepper"><button class="step-btn" onclick="step('temp-fb-z1', -0.1)">−</button><input type="number" class="step-input" id="temp-fb-z1-val" onchange="manualInput('temp-fb-z1', this.value)"><button class="step-btn" onclick="step('temp-fb-z1', +0.1)">+</button></div>
+        </div>
+
+        <div id="heat-settings-z1">
+          <div class="ctrl-row"><span class="ctrl-label param-label">Max Flow Z1<span class="tip-icon">?</span><span class="tip-box">Upper flow-temperature bound Auto-Adaptive is allowed to command for this zone.</span></span><div class="stepper"><button class="step-btn" onclick="step('aa-max', -0.1)">−</button><input type="number" class="step-input" id="aa-max-val" onchange="manualInput('aa-max', this.value)"><button class="step-btn" onclick="step('aa-max', +0.1)">+</button></div></div>
+          <div class="ctrl-row" style="border-bottom: none; padding-bottom: 0;"><span class="ctrl-label param-label">Min Flow Z1<span class="tip-icon">?</span><span class="tip-box">Lower flow-temperature bound Auto-Adaptive is allowed to command for this zone.</span></span><div class="stepper"><button class="step-btn" onclick="step('aa-min', -0.1)">−</button><input type="number" class="step-input" id="aa-min-val" onchange="manualInput('aa-min', this.value)"><button class="step-btn" onclick="step('aa-min', +0.1)">+</button></div></div>
+        </div>
+        <div id="cool-settings-z1" style="display:none;">
+          <div class="ctrl-row" style="border-bottom: none; padding-bottom: 0;">
+            <span class="ctrl-label param-label">Min Cool Flow Z1
+              <span class="tip-icon" style="color:var(--danger); border-color:var(--danger);">!</span>
+              <span class="tip-box" style="border-color:var(--danger);">
+                <span class="tip-unit" style="color:var(--danger);">Dew Point Warning</span>
+                Ensure this value is above your home's dew temperature to prevent condensation.
+              </span>
+            </span>
+            <div class="stepper">
+              <button class="step-btn" onclick="step('cool-min-z1', -0.1)">−</button>
+              <input type="number" class="step-input" id="cool-min-z1-val" onchange="manualInput('cool-min-z1', this.value)">
+              <button class="step-btn" onclick="step('cool-min-z1', +0.1)">+</button>
+            </div>
+          </div>
+        </div>        
+        
+        <div id="aa-z2-container" style="display:none;">
+          <div class="sub-label" style="margin-top: 24px; padding-top: 16px; border-top: 1px dashed var(--border); padding-bottom: 5px;">Settings Z2</div>
+          <div class="ctrl-row" id="row-z2src">
+            <span class="ctrl-label param-label">Room Temp Source Z2<span class="tip-icon">?</span>
+              <span class="tip-box">
+                <span class="tip-unit">Room Thermostat</span>MRC or Wireless thermostat.<br><br>
+                <span class="tip-unit">HA / REST API</span>Reads temp pushed via REST API or HA. ('number.temperature_feedback_z2')<br><br>
+                <span class="tip-unit">Asgard Virtual Thermostat</span>Uses the Virtual Thermostat.
+              </span>
+            </span>
+            <select class="ctrl-select" id="sel-z2src" onchange="sendSelect('room_temp_source_z2', this)">
+              <option>Room Thermostat</option><option>Home Assistant / REST API</option><option>Asgard Virtual Thermostat</option>
+            </select>
+          </div>
+
+          <div class="ctrl-row" id="row-z2src-temp">
+            <span class="ctrl-label param-label">Room Temp Value<span class="tip-icon">?</span><span class="tip-box">Live temperature of the selected Room Temp Source above — the value Auto-Adaptive actually uses for this zone.</span></span>
+            <span class="ctrl-value" id="z2src-temp" style="font-weight:600; font-family:var(--mono);">—</span>
+          </div>
+          <div class="ctrl-row" id="row-z2-fb" style="display:none;">
+            <span class="ctrl-label param-label">HA / REST API Temp<span class="tip-icon">?</span><span class="tip-box">Room temperature pushed in via Home Assistant or the REST API. Used as the Room Temp Source when 'Home Assistant / REST API' is selected.</span></span>
+            <div class="stepper"><button class="step-btn" onclick="step('temp-fb-z2', -0.1)">−</button><input type="number" class="step-input" id="temp-fb-z2-val" onchange="manualInput('temp-fb-z2', this.value)"><button class="step-btn" onclick="step('temp-fb-z2', +0.1)">+</button></div>
+          </div>
+
+          <div id="heat-settings-z2">
+            <div class="ctrl-row"><span class="ctrl-label param-label">Max Flow Z2<span class="tip-icon">?</span><span class="tip-box">Upper flow-temperature bound Auto-Adaptive is allowed to command for this zone.</span></span><div class="stepper"><button class="step-btn" onclick="step('aa-max-z2', -0.1)">−</button><input type="number" class="step-input" id="aa-max-z2-val" onchange="manualInput('aa-max-z2', this.value)"><button class="step-btn" onclick="step('aa-max-z2', +0.1)">+</button></div></div>
+            <div class="ctrl-row" style="border-bottom: none; padding-bottom: 0;"><span class="ctrl-label param-label">Min Flow Z2<span class="tip-icon">?</span><span class="tip-box">Lower flow-temperature bound Auto-Adaptive is allowed to command for this zone.</span></span><div class="stepper"><button class="step-btn" onclick="step('aa-min-z2', -0.1)">−</button><input type="number" class="step-input" id="aa-min-z2-val" onchange="manualInput('aa-min-z2', this.value)"><button class="step-btn" onclick="step('aa-min-z2', +0.1)">+</button></div></div>
+          </div>
+          <div id="cool-settings-z2" style="display:none;">
+            <div class="ctrl-row" style="border-bottom: none; padding-bottom: 0;">
+              <span class="ctrl-label param-label">Min Cool Flow Z2
+                <span class="tip-icon" style="color:var(--danger); border-color:var(--danger);">!</span>
+                <span class="tip-box" style="border-color:var(--danger);">
+                  <span class="tip-unit" style="color:var(--danger);">Dew Point Warning</span>
+                  Ensure this value is above your home's dew temperature to prevent condensation.
+                </span>
+              </span>
+              <div class="stepper">
+                <button class="step-btn" onclick="step('cool-min-z2', -0.1)">−</button>
+                <input type="number" class="step-input" id="cool-min-z2-val" onchange="manualInput('cool-min-z2', this.value)">
+                <button class="step-btn" onclick="step('cool-min-z2', +0.1)">+</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <button class="send-btn" onclick="sendAA(this)" style="margin-bottom:0; margin-top:24px;">Apply Settings</button>
+      </div>
+    </div>  
 
     <div class="ctrl-card" id="card-dhw">
       <div class="section-title">DHW</div>
@@ -667,7 +815,7 @@ header {
       <div style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 10px; background: var(--bg2);">
         
         <div class="ctrl-row" style="border-bottom: 1px solid var(--border); padding: 0 0 12px 0;">
-          <span class="ctrl-label">Force DHW Now</span>
+          <span class="ctrl-label param-label">Force DHW Now<span class="tip-icon">?</span><span class="tip-box">Triggers non-ECO mode DHW.</span></span>
           <label class="toggle-wrap">
             <input type="checkbox" id="sw-fdhw" onchange="sendSwitch('force_dhw', this.checked)">
             <span class="toggle-slider"></span>
@@ -676,7 +824,7 @@ header {
         
         <div class="ctrl-row" style="border-bottom: none; padding: 12px 0 0 0;">
           <span class="ctrl-label param-label">Trigger Regular DHW<span class="tip-icon">?</span>
-          <span class="tip-box">Temporarily bumps the DHW target by max drop + 1°C to trigger a normal DHW heating cycle.</span></span>
+          <span class="tip-box">Triggers ECO mode DHW.</span></span>
           <label class="toggle-wrap">
             <input type="checkbox" id="sw-regular-dhw" onchange="sendSwitch('sw_regular_dhw', this.checked)">
             <span class="toggle-slider"></span>
@@ -697,219 +845,166 @@ header {
       <div style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 15px; background: var(--bg2);">
         <div style="display:flex; align-items:flex-end; gap:14px; margin-bottom:10px;">
           <div><div class="stat-label">Tank Temp</div><div class="big-temp" id="dhw-current">—<span>°C</span></div></div>
-          <div style="flex:1;"><div class="stat-label">Target</div><div class="stepper"><button class="step-btn" onclick="step('dhw-sp', -0.5)">−</button><div class="step-val" id="dhw-sp-val">—</div><button class="step-btn" onclick="step('dhw-sp', +0.5)">+</button></div></div>
+          <div style="flex:1;"><div class="stat-label">Target</div><div class="stepper"><button class="step-btn" onclick="step('dhw-sp', -0.5)">−</button><input type="number" class="step-input" id="dhw-sp-val" onchange="manualInput('dhw-sp', this.value)"><button class="step-btn" onclick="step('dhw-sp', +0.5)">+</button></div></div>
         </div>
         <button class="send-btn" onclick="sendDHW(this)" style="margin-bottom:0;">Apply DHW</button>
       </div>
     </div>
 
-    <div class="ctrl-card" id="card-aa">
-      <div class="section-title">Auto Adaptive</div>
-      
-      <div style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 10px; background: var(--bg2);">
-        <div class="sub-label" style="margin-top: 0; border: none; padding-bottom: 5px;">General Settings</div>
-        <div class="ctrl-row"><span class="ctrl-label">Enable AA Control</span><label class="toggle-wrap"><input type="checkbox" id="sw-aa" onchange="sendSwitch('auto_adaptive_control_enabled', this.checked)"><span class="toggle-slider"></span></label></div>
-        <div class="ctrl-row"><span class="ctrl-label">Defrost Mitigation</span><label class="toggle-wrap"><input type="checkbox" id="sw-dm" onchange="sendSwitch('defrost_risk_handling_enabled', this.checked)"><span class="toggle-slider"></span></label></div>
-        <div class="ctrl-row" style="border-bottom: none; padding-bottom: 0;"><span class="ctrl-label">Smart Boost</span><label class="toggle-wrap"><input type="checkbox" id="sw-sb" onchange="sendSwitch('smart_boost_enabled', this.checked)"><span class="toggle-slider"></span></label></div>
+
+    <div class="ctrl-card" id="card-advanced-control">
+      <div class="section-title">ADVANCED CONTROL</div>
+
+      <div class="sub-card" id="sub-power" style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 10px; background: var(--bg2);">
+        <div class="sub-label sub-label-toggle" style="margin-top: 0; border: none; padding-bottom: 5px;" onclick="toggleSubCard('sub-power')">Power & Modes <span class="collapse-icon">▼</span></div>
+        <div class="sub-card-body">
+          <div class="ctrl-row">
+            <span class="ctrl-label param-label">Power<span class="tip-icon">?</span><span class="tip-box">Power On / Stand-by</span></span>
+            <label class="toggle-wrap">
+              <input type="checkbox" id="sw-power-mode" onchange="sendSwitch('power_mode', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label param-label">Service Codes<span class="tip-icon">?</span><span class="tip-box">Enable service codes mode to see additional diagnostic sensors (compressor starts, pipe temperatures, super/subcool, fan speed). <b>Turn OFF before manually reading codes from your MRC display.</b> Turn back ON when done. Always return to the MRC main screen before toggling — service codes will not work otherwise.</span></span>
+            <label class="toggle-wrap">
+              <input type="checkbox" id="sw-service-codes" onchange="sendSwitch('service_codes_enabled', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="ctrl-row" style="border-bottom: none; padding-bottom: 0;">
+            <span class="ctrl-label param-label">Holiday Mode<span class="tip-icon">?</span><span class="tip-box">Enables Holiday Mode on the heat pump, overriding normal scheduling.</span></span>
+            <label class="toggle-wrap">
+              <input type="checkbox" id="sw-holiday-mode" onchange="sendSwitch('holiday_mode', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
       </div>
 
-
-      <div style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 15px; background: var(--bg2);">
-        
-
-        <div class="sub-label" style="margin-top: 0; border: none; padding-bottom: 5px;">General Zone Settings</div>
-        <div class="ctrl-row">
-          <span class="ctrl-label">Heating System Type</span>
-          <select class="ctrl-select" id="sel-hst" onchange="sendSelect('heating_system_type', this)">
-            <option value="0">UFH</option>
-            <option value="1">UFH *</option>
-            <option value="2">UFH + Radiators</option>
-            <option value="3">UFH + Radiators *</option>
-            <option value="4">Radiators</option>
-            <option value="5">Radiators *</option>
-          </select>
-        </div>
-
-        <div class="ctrl-row" style="border-bottom: none; padding-bottom: 0;"><span class="ctrl-label">Setpoint Bias</span><div class="stepper"><button class="step-btn" onclick="step('aa-bias', -0.1)">−</button><div class="step-val" id="aa-bias-val">—</div><button class="step-btn" onclick="step('aa-bias', +0.1)">+</button></div></div>
-        <div class="ctrl-row"><span class="ctrl-label">Global Smart Start Temp</span><div class="stepper"><button class="step-btn" onclick="step('cool-start-z1', -0.5)">−</button><div class="step-val" id="cool-start-z1-val">—</div><button class="step-btn" onclick="step('cool-start-z1', +0.5)">+</button></div></div>
-        <div class="sub-label" style="margin-top: 24px; padding-top: 16px; border-top: 1px dashed var(--border); padding-bottom: 5px;">Settings Z1</div>
-
-        <div class="ctrl-row">
-          <span class="ctrl-label param-label">Room Temp Source Z1<span class="tip-icon">?</span>
-            <span class="tip-box">
-              <span class="tip-unit">Room Thermostat</span>MRC or Wireless thermostat.<br><br>
-              <span class="tip-unit">HA / REST API</span>Reads temp pushed via REST API or HA.<br><br>
-              <span class="tip-unit">Asgard Virtual Thermostat</span>Uses the Virtual Thermostat.
-            </span>
-          </span>
-          <select class="ctrl-select" id="sel-z1src" onchange="sendSelect('room_temp_source_z1', this)">
-            <option>Room Thermostat</option><option>Home Assistant / REST API</option><option>Asgard Virtual Thermostat</option>
-          </select>
-        </div>
-        
-        <div id="heat-settings-z1">
-          <div class="ctrl-row"><span class="ctrl-label">Max Flow Z1</span><div class="stepper"><button class="step-btn" onclick="step('aa-max', -0.1)">−</button><div class="step-val" id="aa-max-val">—</div><button class="step-btn" onclick="step('aa-max', +0.1)">+</button></div></div>
-          <div class="ctrl-row" style="border-bottom: none; padding-bottom: 0;"><span class="ctrl-label">Min Flow Z1</span><div class="stepper"><button class="step-btn" onclick="step('aa-min', -0.1)">−</button><div class="step-val" id="aa-min-val">—</div><button class="step-btn" onclick="step('aa-min', +0.1)">+</button></div></div>
-        </div>
-        <div id="cool-settings-z1" style="display:none;">
+      <div class="sub-card" id="sub-odin" style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 15px; background: var(--bg2);">
+        <div class="sub-label sub-label-toggle" style="margin-top: 0; border: none; padding-bottom: 5px;" onclick="toggleSubCard('sub-odin')">Odin Solver <span class="collapse-icon">▼</span></div>
+        <div class="sub-card-body">
           <div class="ctrl-row" style="border-bottom: none; padding-bottom: 0;">
-            <span class="ctrl-label param-label">Min Cool Flow Z1
-              <span class="tip-icon" style="color:var(--danger); border-color:var(--danger);">!</span>
-              <span class="tip-box" style="border-color:var(--danger);">
-                <span class="tip-unit" style="color:var(--danger);">Dew Point Warning</span>
-                Ensure this value is above your home's dew temperature to prevent condensation.
-              </span>
-            </span>
-            <div class="stepper">
-              <button class="step-btn" onclick="step('cool-min-z1', -0.1)">−</button>
-              <div class="step-val" id="cool-min-z1-val">—</div>
-              <button class="step-btn" onclick="step('cool-min-z1', +0.1)">+</button>
+            <span class="ctrl-label param-label">Show Solver Tab<span class="tip-icon">?</span><span class="tip-box">Shows or hides the Solver navigation tab in this dashboard. Enable when Odin is used.</span></span>
+            <label class="toggle-wrap">
+              <input type="checkbox" id="sw-show-solver" onchange="sendSwitch('show_solver_tab_enabled', this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="sub-card" id="sub-server" style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 15px; background: var(--bg2);">
+        <div class="sub-label sub-label-toggle" style="margin-top: 0; border: none; padding-bottom: 5px;" onclick="toggleSubCard('sub-server')">Server Control <span class="collapse-icon">▼</span></div>
+        <div class="sub-card-body">
+          <div class="ctrl-row">
+            <span class="ctrl-label param-label">Enable Server Control<span class="tip-icon">?</span><span class="tip-box">Server Control allows you to override the operations.</span></span>
+            <label class="toggle-wrap">
+              <input type="checkbox" id="sw-sc-enable" onchange="onServerControlToggle(this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div id="sc-prohibit-section" style="border-top: 1px dashed var(--border); margin-top: 8px; padding-top: 8px;">
+            <div class="sub-label" style="margin-top: 0; border: none; padding-bottom: 5px;">Prohibit Controls</div>
+            <div class="ctrl-row">
+              <span class="ctrl-label param-label">DHW<span class="tip-icon">?</span><span class="tip-box">Blocks the heat pump from running any DHW cycle, regardless of tank temperature, schedule, or manual triggers, until turned back off.</span></span>
+              <label class="toggle-wrap">
+                <input type="checkbox" id="sw-sc-prohibit-dhw" onchange="sendSwitch('server_control_prohibit_dhw', this.checked)">
+                <span class="toggle-slider"></span>
+              </label>
             </div>
-          </div>
-        </div>        
-        
-        <div id="aa-z2-container" style="display:none;">
-          <div class="sub-label" style="margin-top: 24px; padding-top: 16px; border-top: 1px dashed var(--border); padding-bottom: 5px;">Settings Z2</div>
-          <div class="ctrl-row" id="row-z2src">
-            <span class="ctrl-label param-label">Room Temp Source Z2<span class="tip-icon">?</span>
-              <span class="tip-box">
-                <span class="tip-unit">Room Thermostat</span>MRC or Wireless thermostat.<br><br>
-                <span class="tip-unit">HA / REST API</span>Reads temp pushed via REST API or HA.<br><br>
-                <span class="tip-unit">Asgard Virtual Thermostat</span>Uses the Virtual Thermostat.
-              </span>
-            </span>
-            <select class="ctrl-select" id="sel-z2src" onchange="sendSelect('room_temp_source_z2', this)">
-              <option>Room Thermostat</option><option>Home Assistant / REST API</option><option>Asgard Virtual Thermostat</option>
-            </select>
-          </div>
-          
-          <div id="heat-settings-z2">
-            <div class="ctrl-row"><span class="ctrl-label">Max Flow Z2</span><div class="stepper"><button class="step-btn" onclick="step('aa-max-z2', -0.1)">−</button><div class="step-val" id="aa-max-z2-val">—</div><button class="step-btn" onclick="step('aa-max-z2', +0.1)">+</button></div></div>
-            <div class="ctrl-row" style="border-bottom: none; padding-bottom: 0;"><span class="ctrl-label">Min Flow Z2</span><div class="stepper"><button class="step-btn" onclick="step('aa-min-z2', -0.1)">−</button><div class="step-val" id="aa-min-z2-val">—</div><button class="step-btn" onclick="step('aa-min-z2', +0.1)">+</button></div></div>
-          </div>
-          <div id="cool-settings-z2" style="display:none;">
-            <div class="ctrl-row" style="border-bottom: none; padding-bottom: 0;">
-              <span class="ctrl-label param-label">Min Cool Flow Z2
-                <span class="tip-icon" style="color:var(--danger); border-color:var(--danger);">!</span>
-                <span class="tip-box" style="border-color:var(--danger);">
-                  <span class="tip-unit" style="color:var(--danger);">Dew Point Warning</span>
-                  Ensure this value is above your home's dew temperature to prevent condensation.
-                </span>
-              </span>
-              <div class="stepper">
-                <button class="step-btn" onclick="step('cool-min-z2', -0.1)">−</button>
-                <div class="step-val" id="cool-min-z2-val">—</div>
-                <button class="step-btn" onclick="step('cool-min-z2', +0.1)">+</button>
+            <div class="ctrl-row">
+              <span class="ctrl-label param-label">Z1 Heating<span class="tip-icon">?</span><span class="tip-box">Blocks the heat pump from heating Zone 1, regardless of schedule or Auto-Adaptive, until turned back off.</span></span>
+              <label class="toggle-wrap">
+                <input type="checkbox" id="sw-sc-prohibit-z1-heat" onchange="sendSwitch('server_control_prohibit_z1_heating', this.checked)">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="ctrl-row" id="sc-prohibit-z1-cool-row">
+              <span class="ctrl-label param-label">Z1 Cooling<span class="tip-icon">?</span><span class="tip-box">Blocks the heat pump from cooling Zone 1, regardless of schedule or Auto-Adaptive, until turned back off.</span></span>
+              <label class="toggle-wrap">
+                <input type="checkbox" id="sw-sc-prohibit-z1-cool" onchange="sendSwitch('server_control_prohibit_z1_cooling', this.checked)">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div id="sc-z2-prohibits" style="display:none;">
+              <div class="ctrl-row">
+                <span class="ctrl-label param-label">Z2 Heating<span class="tip-icon">?</span><span class="tip-box">Blocks the heat pump from heating Zone 2, regardless of schedule or Auto-Adaptive, until turned back off.</span></span>
+                <label class="toggle-wrap">
+                  <input type="checkbox" id="sw-sc-prohibit-z2-heat" onchange="sendSwitch('server_control_prohibit_z2_heating', this.checked)">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="ctrl-row" style="border-bottom: none; padding-bottom: 0;">
+                <span class="ctrl-label param-label">Z2 Cooling<span class="tip-icon">?</span><span class="tip-box">Blocks the heat pump from cooling Zone 2, regardless of schedule or Auto-Adaptive, until turned back off.</span></span>
+                <label class="toggle-wrap">
+                  <input type="checkbox" id="sw-sc-prohibit-z2-cool" onchange="sendSwitch('server_control_prohibit_z2_cooling', this.checked)">
+                  <span class="toggle-slider"></span>
+                </label>
               </div>
             </div>
           </div>
         </div>
-
-        <div id="heat-short-cycle">
-          <div class="sub-label" style="margin-top: 24px; padding-top: 16px; border-top: 1px dashed var(--border); padding-bottom: 5px;">Short Cycle Protection</div>
-          <div class="ctrl-row"><span class="ctrl-label">Predictive Control</span><label class="toggle-wrap"><input type="checkbox" id="sw-psc" onchange="sendSwitch('predictive_short_cycle_control_enabled', this.checked)"><span class="toggle-slider"></span></label></div>
-          <div class="ctrl-row"><span class="ctrl-label">Time Window (min)</span><div class="stepper"><button class="step-btn" onclick="step('psc-win', -0.5)">−</button><div class="step-val" id="psc-win-val">—</div><button class="step-btn" onclick="step('psc-win', +0.5)">+</button></div></div>
-          <div class="ctrl-row" style="border-bottom: none; padding-bottom: 0;"><span class="ctrl-label">Delta Threshold (°C)</span><div class="stepper"><button class="step-btn" onclick="step('psc-delta', -0.5)">−</button><div class="step-val" id="psc-delta-val">—</div><button class="step-btn" onclick="step('psc-delta', +0.5)">+</button></div></div>
-        </div>
-
-        <button class="send-btn" onclick="sendAA(this)" style="margin-bottom:0; margin-top:24px;">Apply Settings</button>
-      </div>
-    </div>  
-
-    <div class="ctrl-card" id="card-server-control">
-      <div class="section-title">ADVANCED CONTROL</div>
-      <div style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 10px; background: var(--bg2);">
-      <div class="sub-label" style="margin-top: 0; border: none; padding-bottom: 5px;">Power Mode</div>
-        <div class="ctrl-row" style="border-bottom: none; padding-bottom: 0;">
-          <span class="ctrl-label">Enable</span>
-          <label class="toggle-wrap">
-            <input type="checkbox" id="sw-power-mode" onchange="sendSwitch('power_mode', this.checked)">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
       </div>
 
-      <div style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 15px; background: var(--bg2);">
-        <div class="sub-label" style="margin-top: 0; border: none; padding-bottom: 5px;">Odin Solver</div>
-        <div class="ctrl-row">
-          <span class="ctrl-label">Show Solver Tab</span>
-          <label class="toggle-wrap">
-            <input type="checkbox" id="sw-show-solver" onchange="sendSwitch('show_solver_tab_enabled', this.checked)">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-      </div>
-
-      <div style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 10px; background: var(--bg2);">
-        <div class="sub-label" style="margin-top: 0; border: none; padding-bottom: 5px;">Ecodan Server Control</div>
-        <div class="ctrl-row">
-          <span class="ctrl-label">Enable Server Control</span>
-          <label class="toggle-wrap">
-            <input type="checkbox" id="sw-sc-enable" onchange="onServerControlToggle(this.checked)">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-      </div>
-
-      <div id="sc-prohibit-section" style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 15px; background: var(--bg2);">
-        <div class="sub-label" style="margin-top: 0; border: none; padding-bottom: 5px;">Prohibit Controls</div>
-        <div class="ctrl-row">
-          <span class="ctrl-label">DHW</span>
-          <label class="toggle-wrap">
-            <input type="checkbox" id="sw-sc-prohibit-dhw" onchange="sendSwitch('server_control_prohibit_dhw', this.checked)">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        <div class="ctrl-row">
-          <span class="ctrl-label">Z1 Heating</span>
-          <label class="toggle-wrap">
-            <input type="checkbox" id="sw-sc-prohibit-z1-heat" onchange="sendSwitch('server_control_prohibit_z1_heating', this.checked)">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        <div class="ctrl-row" id="sc-prohibit-z1-cool-row">
-          <span class="ctrl-label">Z1 Cooling</span>
-          <label class="toggle-wrap">
-            <input type="checkbox" id="sw-sc-prohibit-z1-cool" onchange="sendSwitch('server_control_prohibit_z1_cooling', this.checked)">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        <div id="sc-z2-prohibits" style="display:none;">
-          <div class="ctrl-row">
-            <span class="ctrl-label">Z2 Heating</span>
+      <div class="sub-card" id="sub-predictive" style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 15px; background: var(--bg2);">
+        <div class="sub-label sub-label-toggle" style="margin-top: 0; border: none; padding-bottom: 5px;" onclick="toggleSubCard('sub-predictive')">Predictive Control <span class="collapse-icon">▼</span></div>
+        <div class="sub-card-body">
+          <div class="ctrl-row" style="border-bottom: none; padding-bottom: 0;">
+            <span class="ctrl-label param-label">Enable<span class="tip-icon">?</span><span class="tip-box">Keeps the flow-temp target within ~1°C of the actual feed temperature on every reading (below it in heating, above it in cooling) so a drifting feed can't cross the compressor's cut-off and halt it — preventing short cycles.</span></span>
             <label class="toggle-wrap">
-              <input type="checkbox" id="sw-sc-prohibit-z2-heat" onchange="sendSwitch('server_control_prohibit_z2_heating', this.checked)">
-              <span class="toggle-slider"></span>
-            </label>
-          </div>
-          <div class="ctrl-row">
-            <span class="ctrl-label">Z2 Cooling</span>
-            <label class="toggle-wrap">
-              <input type="checkbox" id="sw-sc-prohibit-z2-cool" onchange="sendSwitch('server_control_prohibit_z2_cooling', this.checked)">
+              <input type="checkbox" id="sw-psc" onchange="sendSwitch('predictive_short_cycle_control_enabled', this.checked)">
               <span class="toggle-slider"></span>
             </label>
           </div>
         </div>
       </div>
-   
-      <div id="sc-prevention-section" style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 15px; background: var(--bg2);">
-        <div class="sub-label" style="margin-top: 0; border: none; padding-bottom: 5px;">Short Cycle Lockout</div>
-        <div class="ctrl-row">
-          <span class="ctrl-label">Lockout Status</span>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span class="ctrl-value" id="badge-lockout-status" style="font-weight:600;">—</span>
-            <button id="btn-cancel-lockout" class="step-btn" style="display: none; width: 24px; height: 24px;" onclick="apiPost({key: 'short_cycle_mitigation_button', value: 1})" title="Cancel Lockout">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-            </button>
-          </div>
-        </div>
-        <div class="ctrl-row"><span class="ctrl-label">Lockout Duration (min)</span><select class="ctrl-select" id="sel-lockout-dur" onchange="sendSelect('lockout_duration', this)"><option value="0">0</option><option value="1">15</option><option value="2">30</option><option value="3">45</option><option value="4">60</option><option value="5">120</option><option value="6">240</option></select></div>
-        <div class="ctrl-row" style="border-bottom: none; padding-bottom: 0;"><span class="ctrl-label">Minimum On-Time (min)</span><div class="stepper"><button class="step-btn" onclick="step('min-on-time', -1)">−</button><div class="step-val" id="min-on-time-val">—</div><button class="step-btn" onclick="step('min-on-time', +1)">+</button></div></div>
 
-        <button class="send-btn" onclick="sendSC(this)" style="margin-bottom:0; margin-top:24px;">Apply Lockout Settings</button>
+      <div class="sub-card" id="sub-short-cycle" style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 15px; background: var(--bg2);">
+        <div class="sub-label sub-label-toggle" style="margin-top: 0; border: none; padding-bottom: 5px;" onclick="toggleSubCard('sub-short-cycle')">Short Cycle Lockout <span class="collapse-icon">▼</span></div>
+        <div class="sub-card-body">
+          <div class="ctrl-row">
+            <span class="ctrl-label">Lockout Status</span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="ctrl-value" id="badge-lockout-status" style="font-weight:600;">—</span>
+              <button id="btn-cancel-lockout" class="step-btn" style="display: none; width: 24px; height: 24px;" onclick="apiPost({key: 'short_cycle_mitigation_button', value: 1})" title="Cancel Lockout">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label param-label">Lockout Strategy<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">Server Control</span>Enables Server Control and prohibits the active zone(s)/mode, then restores the prior controller flags afterwards.<br><br><span class="tip-unit">Flow Control</span>Pushes the flow setpoint 5°C past the current actual feed temp (colder in cooling, warmer in heating) so the unit self-satisfies and the compressor stops — the water pump keeps circulating. The original flow setpoint is restored afterwards.</span></span>
+            <select class="ctrl-select" id="sel-lockout-strategy" onchange="sendSelect('lockout_strategy', this)">
+              <option value="0">Server Control</option>
+              <option value="1">Flow Control</option>
+            </select>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label param-label">Lockout Duration (min)<span class="tip-icon">?</span><span class="tip-box">How long Short Cycle Lockout holds elevated flow temps after triggering, before returning control to normal Auto-Adaptive behaviour. 0 = feature disabled.</span></span>
+            <select class="ctrl-select" id="sel-lockout-dur" onchange="sendSelect('lockout_duration', this)">
+              <option value="0">0</option>
+              <option value="1">15</option>
+              <option value="2">30</option>
+              <option value="3">45</option>
+              <option value="4">60</option>
+              <option value="5">120</option>
+              <option value="6">240</option>
+            </select>
+          </div>
+          <div class="ctrl-row" style="border-bottom: none; padding-bottom: 0;">
+            <span class="ctrl-label param-label">Minimum On-Time (min)<span class="tip-icon">?</span><span class="tip-box">How long the compressor must have already been running before Predictive Control or Short Cycle Lockout will act.</span></span>
+            <div class="stepper">
+              <button class="step-btn" onclick="step('min-on-time', -1)">−</button>
+              <div class="step-val" id="min-on-time-val">—</div>
+              <button class="step-btn" onclick="step('min-on-time', +1)">+</button>
+            </div>
+          </div>
+          <button class="send-btn" onclick="sendSC(this)" style="margin-bottom:0; margin-top:16px;">Apply Lockout Settings</button>
+        </div>
       </div>
     </div>
-  </div>
+</div>
 </div>
 
 <div id="view-solver" class="view-section">
@@ -943,7 +1038,7 @@ header {
       <div class="collapsible-content">
       
         <div class="ctrl-row">
-          <span class="ctrl-label">Enable Dynamic Cost Solver</span>
+          <span class="ctrl-label param-label">Enable Dynamic Cost Solver<span class="tip-icon">?</span><span class="tip-box">Lets ODIN's hourly plan (electricity price + weather + solar optimised) drive the heat pump instead of Asgard's standalone Auto-Adaptive control.</span></span>
           <label class="toggle-wrap">
             <input type="checkbox" id="sw-solver" onchange="handleSolverToggle(this)">
             <span class="toggle-slider"></span>
@@ -956,10 +1051,10 @@ header {
         </div>
 
         <div class="ctrl-row">
-          <span class="ctrl-label">Odin IP Address</span>
+          <span class="ctrl-label param-label">Odin IP Address<span class="tip-icon">?</span><span class="tip-box">Manual override for the ODIN device's address.</span></span>
           <div style="display: flex; align-items: center; gap: 6px;">
             <input type="text" id="ui-solver-ip" style="background: var(--bg3); border: 1px solid var(--border); color: var(--text); font-family: var(--mono); font-size: 10px; padding: 4px 8px; border-radius: 7px; width: 110px; text-align: right; outline: none;" placeholder="0.0.0.0">
-            <button class="step-btn" style="width: 26px; border-color: var(--text3); color: var(--text3);" onclick="sendInputString('solver_ip_address', 'ui-solver-ip')" title="Save IP">✓</button>
+            <button class="step-btn" style="width: 26px; border-color: var(--accent); color: var(--accent);" onclick="sendInputString('solver_ip_address', 'ui-solver-ip')" title="Save IP">✓</button>
           </div>
         </div>
 
@@ -975,7 +1070,7 @@ header {
         
         <div class="ctrl-row" style="border-bottom: none;">
           <span class="ctrl-label param-label">ODIN DHW Trigger<span class="tip-icon">?</span><span class="tip-box">
-            <span class="tip-unit">Mode</span>Method used when ODIN schedules DHW. Regular bumps the setpoint by max drop + 1°C, Forced is faster but at the cost of higher consumption</span></span>
+            <span class="tip-unit">Mode</span>Method used when ODIN schedules DHW. Regular uses ECO mode, Forced is faster but at the cost of higher consumption</span></span>
           <select class="ctrl-select" id="sel-odin-dhw-mode" onchange="sendSelect('solver_dhw_mode', this)">
             <option>Regular</option>
             <option>Forced</option>
@@ -1025,6 +1120,11 @@ header {
             <span class="ctrl-label param-label">Avg Ambient Temp<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">°C</span>Average ambient temperature (last session). Used to calculate heat loss and COP correction.</span></span>
             <div class="stepper"><button class="step-btn" onclick="step('raw-out', -0.1)">−</button><input type="number" class="step-input" id="raw-out-val" onchange="manualInput('raw-out', this.value)" /><button class="step-btn" onclick="step('raw-out', +0.1)">+</button></div>
           </div>
+
+          <div class="ctrl-row">
+            <span class="ctrl-label param-label">Heating Avg Room<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">°C</span>Average room temperature on heating days. Pairs with Avg Ambient Temp above to determine heat loss coefficient. Heating-only — see Cooling Avg Room in the Cooling Profile tab for the cooling-season counterpart.</span></span>
+            <div class="stepper"><button class="step-btn" onclick="step('raw-room', -0.1)">−</button><input type="number" class="step-input" id="raw-room-val" onchange="manualInput('raw-room', this.value)" /><button class="step-btn" onclick="step('raw-room', +0.1)">+</button></div>
+          </div>
         </div>
 
         <div id="phys-group-cool" style="display: none;">
@@ -1047,14 +1147,14 @@ header {
             <span class="ctrl-label param-label">Cooling Avg Ambient<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">°C</span>Average outdoor temperature (last session) during cooling.</span></span>
             <div class="stepper"><button class="step-btn" onclick="step('raw-cool-out', -0.1)">−</button><input type="number" class="step-input" id="raw-cool-out-val" onchange="manualInput('raw-cool-out', this.value)" /><button class="step-btn" onclick="step('raw-cool-out', +0.1)">+</button></div>
           </div>
+
+          <div class="ctrl-row">
+            <span class="ctrl-label param-label">Cooling Avg Room<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">°C</span>Average room temperature on cooling days. Pairs with Cooling Avg Ambient above. Cooling-only — see Heating Avg Room in the Heating Profile tab for the heating-season counterpart. Kept separate to prevent seasonal drift.</span></span>
+            <div class="stepper"><button class="step-btn" onclick="step('raw-cool-room', -0.1)">−</button><input type="number" class="step-input" id="raw-cool-room-val" onchange="manualInput('raw-cool-room', this.value)" /><button class="step-btn" onclick="step('raw-cool-room', +0.1)">+</button></div>
+          </div>
         </div>
 
         <div class="sub-label" style="margin-top:20px;">Universal Building Physics</div>
-
-        <div class="ctrl-row">
-          <span class="ctrl-label param-label">Avg Room Temp<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">°C</span>Average room temperature yesterday. Together with outside temp, determines heat loss coefficient.</span></span>
-          <div class="stepper"><button class="step-btn" onclick="step('raw-room', -0.1)">−</button><input type="number" class="step-input" id="raw-room-val" onchange="manualInput('raw-room', this.value)" /><button class="step-btn" onclick="step('raw-room', +0.1)">+</button></div>
-        </div>
 
         <div class="ctrl-row">
           <span class="ctrl-label param-label">Delta Room Temp<span class="tip-icon">?</span><span class="tip-box"><span class="tip-unit">°C (daily swing)</span>Difference between max and min room temp yesterday. Small delta = high thermal mass (house holds heat well).</span></span>
@@ -1111,6 +1211,9 @@ header {
           <div class="legend-item">
             <span style="color:#ffb020; font-weight:bold;">12:00</span>DHW
           </div>
+          <div class="legend-item" title="Colored strip hovering just above the highest visible line: the mode that actually ran that hour. Planned mode is shown by the x-axis label colors.">
+            <div class="legend-dot" style="height:5px; border-radius:1px; background:#8295b8;"></div>Actual mode (strip)
+          </div>
         </div>
         <button class="log-btn" id="btn-reset-zoom-odin" style="display:none; padding: 2px 8px; font-size: 9px;" onclick="resetOdinZoom()">Reset Zoom</button>
       </div>
@@ -1138,7 +1241,7 @@ header {
     </div>
     <div class="chart-container"><canvas id="odinConsChart"></canvas></div>
   </div>
-  
+
   <div class="chart-card full-width" style="grid-column: 1 / -1;">
     <div class="chart-header" style="flex-wrap: wrap; gap: 10px;">
       <div class="section-title" style="margin:0">Energy Production (24h)</div>
@@ -1190,37 +1293,54 @@ header {
   </div>
 </div>
 
-<div id="view-logs" class="view-section">
-   <div class="chart-card full-width">
-     <div class="chart-header">
-       <div class="section-title" style="margin:0">System Logs</div>
-       <div id="log-status" style="font-size:10px; font-family:var(--mono); color:var(--text3)">Connecting...</div>
+<div id="view-system" class="view-section">
+   <div class="ctrl-card collapsed" id="sys-settings-backup">
+     <div class="section-title" onclick="toggleCard('sys-settings-backup')">Settings Backup <span class="collapse-icon">▼</span></div>
+     <div class="ctrl-card-body">
+       <div id="settings-backup-status" style="font-size:10px; font-family:var(--mono); color:var(--text3); margin-bottom:8px;"></div>
+       <div style="color: var(--text3); font-size: 11px; margin-bottom: 12px; line-height: 1.5;">
+         Save every Settings and Solver tab value (numbers, switches, sliders, selects) to a JSON file, or restore them from a previously saved file.
+       </div>
+       <div class="log-controls">
+          <button class="log-btn" style="border-color: var(--accent); color: var(--accent);" onclick="downloadSettingsBackup()">Save Settings</button>
+          <button class="log-btn" id="btn-restore-settings" style="border-color: var(--accent); color: var(--accent);" onclick="triggerRestoreSettings()">Restore Settings</button>
+       </div>
+       <input type="file" id="settings-restore-file" style="display:none" accept=".json,application/json" onchange="restoreSettingsFromFile()">
      </div>
-     
-     <div class="log-controls">
-        <button class="log-btn" id="pauseBtn" onclick="togglePause()">Pause</button>
-        <button class="log-btn" onclick="clearLogs()">Clear</button>
-        <button class="log-btn" onclick="downloadLogs()">Download</button>
-        <button class="log-btn" style="border-color: var(--accent); color: var(--accent);" onclick="triggerUpload()">Manual Firmware Upload</button>
-        <button class="log-btn" id="btn-check-update" style="border-color: var(--accent); color: var(--accent);" onclick="checkForUpdate(this)">Check for Update</button>
-     </div>
+   </div>
 
-     <!-- ── Update available banner (hidden until update found) ──────────── -->
-    <div id="ota-update-banner" style="display:none;background:var(--card2,#1e2535);border:1px solid var(--accent);border-radius:8px;padding:12px;margin:10px 0;">
-        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-            <span id="ota-version-info" style="font-size:12px;color:var(--text);font-family:var(--mono);font-weight:600;"></span>
-            <button class="log-btn" id="btn-apply-update" style="border-color:#e07b39;color:#e07b39;font-weight:bold;" onclick="applyUpdate(this)">Download</button>
-        </div>
-        
-        <div id="ota-release-notes" style="margin-top:12px; font-size:11px; color:var(--text2); font-family:var(--mono); line-height:1.5; border-top:1px solid var(--border); padding-top:10px; display:none;"></div>
-        
-        <span id="ota-apply-status" style="display:block; margin-top:8px; font-size:11px; color:var(--text3); font-family:var(--mono);"></span>
-    </div>
-     
-     <div id="logs-container"></div>
+   <div class="ctrl-card" id="sys-firmware">
+     <div class="section-title" onclick="toggleCard('sys-firmware')">Firmware <span class="collapse-icon">▼</span></div>
+     <div class="ctrl-card-body">
+       <div class="log-controls">
+          <button class="log-btn" style="border-color: var(--accent); color: var(--accent);" onclick="triggerUpload()">Manual Firmware Upload</button>
+          <button class="log-btn" id="btn-check-update" style="border-color: var(--accent); color: var(--accent);" onclick="checkForUpdate(this)">Check for Update</button>
+       </div>
+       <div id="ota-update-banner" style="display:none;background:var(--card2,#1e2535);border:1px solid var(--accent);border-radius:8px;padding:12px;margin:10px 0;">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+              <span id="ota-version-info" style="font-size:12px;color:var(--text);font-family:var(--mono);font-weight:600;"></span>
+              <button class="log-btn" id="btn-apply-update" style="border-color:#e07b39;color:#e07b39;font-weight:bold;" onclick="applyUpdate(this)">Download</button>
+          </div>
+          <div id="ota-release-notes" style="margin-top:12px; font-size:11px; color:var(--text2); font-family:var(--mono); line-height:1.5; border-top:1px solid var(--border); padding-top:10px; display:none;"></div>
+          <span id="ota-apply-status" style="display:block; margin-top:8px; font-size:11px; color:var(--text3); font-family:var(--mono);"></span>
+       </div>
+     </div>
    </div>
 
    <input type="file" id="ota-file" style="display:none" accept=".bin" onchange="performUpload()">
+
+   <div class="ctrl-card" id="sys-logs">
+     <div class="section-title" onclick="toggleCard('sys-logs')">System Logs <span class="collapse-icon">▼</span></div>
+     <div class="ctrl-card-body">
+       <div id="log-status" style="font-size:10px; font-family:var(--mono); color:var(--text3); margin-bottom:8px;">Connecting...</div>
+       <div class="log-controls">
+          <button class="log-btn" id="pauseBtn" onclick="togglePause()">Pause</button>
+          <button class="log-btn" onclick="clearLogs()">Clear</button>
+          <button class="log-btn" onclick="downloadLogs()">Download</button>
+       </div>
+       <div id="logs-container" style="margin-top:10px;"></div>
+     </div>
+   </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -1245,21 +1365,126 @@ const history = {
   outside: [], liquid_pipe: [], condensing: []
 };
 
-const pending = { 
-  'aa-bias': null, 'aa-max': null, 'aa-min': null, 
-  'aa-max-z2': null, 'aa-min-z2': null,
-  'psc-win': null, 'psc-delta': null, 
-  'dhw-sp': null, 
-  'z1-sp': null, 'z1-hyst': null, 'room-z1-sp': null,
-  'z2-sp': null, 'z2-hyst': null, 'room-z2-sp': null,
-  'flow-z1-sp': null, 'flow-z2-sp': null,
-  'raw-heat': null, 'raw-elec': null, 'raw-run': null,
-  'raw-out': null, 'raw-room': null, 'raw-delta': null, 'raw-solar-factor': null,
-  'batt-soc': null, 'batt-max-dis': null,
-  'cool-start-z1': null, 'cool-min-z1': null, 'cool-min-z2': null, 'dhw-thresh': null,
-  'raw-cool-prod': null, 'raw-cool-elec': null, 'raw-cool-run': null, 'raw-cool-out': null,
-  'min-on-time': null,
-};
+// ── Central control registry ────────────────────────────────────────────────
+// Single source of truth for every editable Settings & Solver tab control.
+// To add, remove, or rename a control, edit ONLY this list — `pending`,
+// `LIMITS`, `STEP_EL`, and the Settings Backup save/restore feature (System tab)
+// are all generated from it automatically.
+//
+// type:
+//   'number' - stepper input tracked in `pending`; value mirrors into the
+//              element named by `el` (an <input> or <div class="step-val">)
+//              via STEP_EL. Needs pkey/key/el/min/max/step.
+//   'hyst'   - hysteresis range slider; tracked in `pending` but its min/max
+//              come live from the device (see render()), not from LIMITS.
+//              Needs pkey/key.
+//   'switch' - checkbox, sent as 1/0. Needs key/el.
+//   'select' - <select>, sent as the option index (int). Needs key/el.
+//   'vmode'  - <select> with a heat/cool/off string value. Needs key/el.
+//   'text'   - free text input, sent as a string. Needs key/el.
+//
+// `key` is the /dashboard/set key and must match dispatch_set_() in
+// asgard_dashboard.cpp exactly.
+const CONTROLS = [
+  // ── Auto Adaptive ──
+  { type:'number', pkey:'aa-bias',     key:'auto_adaptive_setpoint_bias',  el:'aa-bias-val',     min:-5,    max:5,    step:0.1 },
+  { type:'number', pkey:'aa-max',      key:'maximum_heating_flow_temp',    el:'aa-max-val',      min:30,    max:65,   step:0.1 },
+  { type:'number', pkey:'aa-min',      key:'minimum_heating_flow_temp',    el:'aa-min-val',      min:20,    max:55,   step:0.1 },
+  { type:'number', pkey:'aa-max-z2',   key:'maximum_heating_flow_temp_z2', el:'aa-max-z2-val',   min:30,    max:65,   step:0.1 },
+  { type:'number', pkey:'aa-min-z2',   key:'minimum_heating_flow_temp_z2', el:'aa-min-z2-val',   min:20,    max:55,   step:0.1 },
+  { type:'number', pkey:'cool-start-z1', key:'cooling_smart_start_z1',     el:'cool-start-z1-val', min:16,  max:25,   step:0.5 },
+  { type:'number', pkey:'cool-min-z1', key:'minimum_cooling_flow_z1',      el:'cool-min-z1-val', min:5,     max:25,   step:0.1 },
+  { type:'number', pkey:'cool-min-z2', key:'minimum_cooling_flow_z2',      el:'cool-min-z2-val', min:5,     max:25,   step:0.1 },
+  { type:'number', pkey:'temp-fb-z1',  key:'temperature_feedback_z1',      el:'temp-fb-z1-val',  min:-50,   max:100,  step:0.1 },
+  { type:'number', pkey:'temp-fb-z2',  key:'temperature_feedback_z2',      el:'temp-fb-z2-val',  min:-50,   max:100,  step:0.1 },
+  { type:'switch', key:'auto_adaptive_control_enabled', el:'sw-aa' },
+  { type:'switch', key:'defrost_risk_handling_enabled', el:'sw-dm' },
+  { type:'switch', key:'smart_boost_enabled', el:'sw-sb' },
+  { type:'switch', key:'predictive_short_cycle_control_enabled', el:'sw-psc' },
+  { type:'select', key:'heating_system_type', el:'sel-hst' },
+  { type:'select', key:'room_temp_source_z1', el:'sel-z1src' },
+  { type:'select', key:'room_temp_source_z2', el:'sel-z2src' },
+
+  // ── Zones ──
+  { type:'select', key:'operating_mode_z1', el:'sel-z1mode' },
+  { type:'select', key:'operating_mode_z2', el:'sel-z2mode' },
+  { type:'select', key:'temp_sensor_source_z1', el:'sel-z1ts' },
+  { type:'select', key:'temp_sensor_source_z2', el:'sel-z2ts' },
+  { type:'switch', key:'ui_use_room_z1', el:'ui-room-z1' },
+  { type:'switch', key:'ui_use_room_z2', el:'ui-room-z2' },
+  { type:'vmode',  key:'virtual_climate_z1_mode', el:'sel-z1-vmode' },
+  { type:'vmode',  key:'virtual_climate_z2_mode', el:'sel-z2-vmode' },
+  { type:'number', pkey:'z1-sp', key:'virtual_climate_z1_setpoint', el:'z1-sp-val', min:10, max:30, step:0.1 },
+  { type:'number', pkey:'z2-sp', key:'virtual_climate_z2_setpoint', el:'z2-sp-val', min:10, max:30, step:0.1 },
+  { type:'hyst',   pkey:'z1-hyst', key:'thermostat_hysteresis_z1' },
+  { type:'hyst',   pkey:'z2-hyst', key:'thermostat_hysteresis_z2' },
+  { type:'number', pkey:'room-z1-sp', key:'heatpump_climate_z1_setpoint', el:'room-z1-sp-val', min:10, max:30, step:0.5 },
+  { type:'number', pkey:'room-z2-sp', key:'heatpump_climate_z2_setpoint', el:'room-z2-sp-val', min:10, max:30, step:0.5 },
+  { type:'number', pkey:'flow-z1-sp', key:'flow_climate_z1_setpoint', el:'flow-z1-sp-val', min:10, max:60, step:0.1 },
+  { type:'number', pkey:'flow-z2-sp', key:'flow_climate_z2_setpoint', el:'flow-z2-sp-val', min:10, max:60, step:0.1 },
+
+  // ── DHW ──
+  { type:'switch', key:'force_dhw', el:'sw-fdhw' },
+  { type:'switch', key:'sw_regular_dhw', el:'sw-regular-dhw' },
+  { type:'number', pkey:'dhw-sp', key:'dhw_setpoint', el:'dhw-sp-val', min:40, max:60, step:0.5 },
+  { type:'number', pkey:'dhw-thresh', key:'dhw_start_threshold', el:'dhw-thresh-val', min:0, max:20, step:0.5 },
+  { type:'select', key:'solver_dhw_mode', el:'sel-odin-dhw-mode' },
+
+  // ── Solver / Odin ──
+  { type:'switch', key:'use_dynamic_cost_solver', el:'sw-solver' },
+  { type:'switch', key:'show_solver_tab_enabled', el:'sw-show-solver' },
+  { type:'text',   key:'solver_ip_address', el:'ui-solver-ip' },
+
+  // ── Physics Data (heating profile) ──
+  { type:'number', pkey:'raw-heat', key:'raw_heat_produced',    el:'raw-heat-val', min:0,   max:200, step:0.1 },
+  { type:'number', pkey:'raw-elec', key:'raw_elec_consumed',    el:'raw-elec-val', min:0,   max:100, step:0.1 },
+  { type:'number', pkey:'raw-run',  key:'raw_runtime_hours',    el:'raw-run-val',  min:0,   max:24,  step:0.1 },
+  { type:'number', pkey:'raw-out',  key:'raw_avg_outside_temp', el:'raw-out-val',  min:-25, max:40,  step:0.1 },
+  { type:'number', pkey:'raw-room', key:'raw_avg_room_temp',    el:'raw-room-val', min:10,  max:35,  step:0.1 },
+
+  // ── Physics Data (cooling profile) ──
+  { type:'number', pkey:'raw-cool-prod', key:'raw_cool_produced',         el:'raw-cool-prod-val', min:0,   max:200, step:0.1 },
+  { type:'number', pkey:'raw-cool-elec', key:'raw_cool_elec_consumed',    el:'raw-cool-elec-val', min:0,   max:100, step:0.1 },
+  { type:'number', pkey:'raw-cool-run',  key:'raw_cool_runtime_hours',    el:'raw-cool-run-val',  min:0,   max:24,  step:0.1 },
+  { type:'number', pkey:'raw-cool-out',  key:'raw_cool_avg_outside_temp', el:'raw-cool-out-val',  min:-25, max:50,  step:0.1 },
+  { type:'number', pkey:'raw-cool-room', key:'raw_cool_avg_room_temp',    el:'raw-cool-room-val', min:10,  max:35,  step:0.1 },
+
+  // ── Universal Building Physics ──
+  { type:'number', pkey:'raw-delta',        key:'raw_delta_room_temp', el:'raw-delta-val',        min:0,     max:10,   step:0.1 },
+  { type:'number', pkey:'raw-hl-tm',        key:'raw_hl_tm_product',   el:'raw-hl-tm-val',        min:0,     max:300,  step:0.5 },
+  { type:'number', pkey:'raw-solar-factor', key:'raw_solar_factor',    el:'raw-solar-factor-val', min:0.001, max:0.05, step:0.0025 },
+  { type:'number', pkey:'batt-soc',         key:'battery_soc_kwh',            el:'batt-soc-val',     min:0,   max:30, step:0.1 },
+  { type:'number', pkey:'batt-max-dis',     key:'battery_max_discharge_kw',   el:'batt-max-dis-val', min:0.5, max:15, step:0.1 },
+
+  // ── Advanced Control ──
+  { type:'switch', key:'power_mode', el:'sw-power-mode' },
+  { type:'switch', key:'service_codes_enabled', el:'sw-service-codes' },
+  { type:'switch', key:'holiday_mode', el:'sw-holiday-mode' },
+  { type:'switch', key:'server_control_enabled', el:'sw-sc-enable' },
+  { type:'switch', key:'server_control_prohibit_dhw', el:'sw-sc-prohibit-dhw' },
+  { type:'switch', key:'server_control_prohibit_z1_heating', el:'sw-sc-prohibit-z1-heat' },
+  { type:'switch', key:'server_control_prohibit_z1_cooling', el:'sw-sc-prohibit-z1-cool' },
+  { type:'switch', key:'server_control_prohibit_z2_heating', el:'sw-sc-prohibit-z2-heat' },
+  { type:'switch', key:'server_control_prohibit_z2_cooling', el:'sw-sc-prohibit-z2-cool' },
+  { type:'select', key:'lockout_strategy', el:'sel-lockout-strategy' },
+  { type:'select', key:'lockout_duration', el:'sel-lockout-dur' },
+  { type:'number', pkey:'min-on-time', key:'minimum_compressor_on_time', el:'min-on-time-val', min:1, max:20, step:1 },
+];
+
+// `pending`, `LIMITS`, and `STEP_EL` are derived from CONTROLS so they can
+// never drift out of sync with each other.
+const pending = {};
+const LIMITS = {};
+const STEP_EL = {};
+CONTROLS.forEach(c => {
+  if (c.type === 'number') {
+    pending[c.pkey] = null;
+    LIMITS[c.pkey] = { min: c.min, max: c.max, step: c.step };
+    STEP_EL[c.pkey] = c.el;
+  } else if (c.type === 'hyst') {
+    pending[c.pkey] = null;
+  }
+});
 
 const lastEdit = {};
 const serverState = {};
@@ -1267,6 +1492,47 @@ const serverState = {};
 let hourlyHistory = [];
 let latestState = {};
 let odinDataCache = null;
+// --- Solver decision reasons ---------------------------------------------
+const REASON_INFO = [
+    { label: '—' },
+    { label: 'Coasting' },
+    { label: 'Comfort (limit)' },
+    { label: 'Comfort (drift)' },
+    // This label means the pump ran when comfort did NOT require it (room on the far
+    // side of sched_base). Hours spent holding the room near a band edge are
+    // Comfort (drift), even on free solar. Split into two sub-reasons (indices 4 and
+    // 11, index-aligned with the C++ enum) so the tooltip says WHY it was worth
+    // buffering: PV covering the draw, or just a cheap grid price/efficient COP.
+    { label: 'Buffering (cheap energy)' },
+    { label: 'Modulation / Wear' },
+    { label: 'Energy price' },
+    { label: 'Hot water' },
+    { label: 'Stop price' },
+    { label: 'Solar-only' },
+    { label: 'Power limit' },
+    { label: 'Buffering (solar)' }   // index 11 — REASON_THERMAL_BUFFER_SOLAR, appended
+                                      // after Power limit for wire-compatibility, not
+                                      // grouped next to index 4 above.
+];
+
+const reasonAt = (idx) => {
+    // First check live cache (Odin forecast)
+    let arr = odinDataCache?.decision_reason;
+    if (arr && idx >= 0 && idx < arr.length && arr[idx] !== null && arr[idx] !== undefined) {
+        const code = Math.round(arr[idx]);
+        return REASON_INFO[code] ?? null;
+    }
+    // Fallback to history mode using hourlyHistory.decision_reason
+    if (hourlyHistory && idx >= 0 && idx < hourlyHistory.length) {
+        const r = hourlyHistory[idx];
+        if (r?.decision_reason !== null && r?.decision_reason !== undefined) {
+            const code = Math.round(r.decision_reason);
+            return REASON_INFO[code] ?? null;
+        }
+    }
+    return null;
+};
+
 let odinConsChart = null;
 let odinProdChart = null;
 let odinCostChart = null;
@@ -1274,63 +1540,6 @@ let odinTempChart = null;
 let odinBattChart = null;
 let odinPriceChart = null;
 let odinWeatherChart = null;
-
-const LIMITS = { 
-  'aa-bias': { min: -5, max: 5, step: 0.1 }, 
-  'aa-max': { min: 30, max: 65, step: 0.1 }, 
-  'aa-min': { min: 20, max: 55, step: 0.1 }, 
-  'aa-max-z2': { min: 30, max: 65, step: 0.1 },
-  'aa-min-z2': { min: 20, max: 55, step: 0.1 }, 
-  'psc-win': { min: 1.0, max: 5.0, step: 0.5 },
-  'psc-delta': { min: 1.0, max: 3.0, step: 0.5 },
-  'dhw-sp': { min: 40, max: 60, step: 0.5 }, 
-  'z1-sp': { min: 10, max: 30, step: 0.1 }, 
-  'z2-sp': { min: 10, max: 30, step: 0.1 },
-  'room-z1-sp': { min: 10, max: 30, step: 0.5 }, 
-  'room-z2-sp': { min: 10, max: 30, step: 0.5 },
-  'flow-z1-sp': { min: 10, max: 60, step: 0.1 },
-  'flow-z2-sp': { min: 10, max: 60, step: 0.1 },
-  'raw-heat': { min: 0.0, max: 200.0, step: 0.1 },
-  'raw-elec': { min: 0.0, max: 100.0, step: 0.1 },
-  'raw-run': { min: 0.0, max: 24.0, step: 0.1 },
-  'raw-out': { min: -25.0, max: 40.0, step: 0.1 },
-  'raw-room': { min: 10.0, max: 35.0, step: 0.1 },
-  'raw-delta': { min: 0.0, max: 10.0, step: 0.1 },
-  'raw-hl-tm': { min: 0.0, max: 300.0, step: 0.5 },
-  'raw-solar-factor': { min: 0.001, max: 0.05, step: 0.0025 },
-  'batt-soc': { min: 0.0, max: 30.0, step: 0.1 },
-  'batt-max-dis': { min: 0.5, max: 15.0, step: 0.1 },
-  'cool-start-z1': { min: 16.0, max: 25.0, step: 0.5 },
-  'cool-min-z1':   { min: 5.0, max: 25.0, step: 0.1 },
-  'cool-min-z2':   { min: 5.0, max: 25.0, step: 0.1 },
-  'dhw-thresh':    { min: 0.0, max: 20.0, step: 0.5 },
-  'raw-cool-prod': { min: 0.0, max: 200.0, step: 0.1 },
-  'raw-cool-elec': { min: 0.0, max: 100.0, step: 0.1 },
-  'raw-cool-run':  { min: 0.0, max: 24.0, step: 0.1 },
-  'raw-cool-out':  { min: -25.0, max: 50.0, step: 0.1 },
-  'min-on-time': { min: 1, max: 20, step: 1 },
-};
-
-const STEP_EL = { 
-  'aa-bias': 'aa-bias-val', 
-  'aa-max': 'aa-max-val', 'aa-min': 'aa-min-val', 
-  'aa-max-z2': 'aa-max-z2-val', 'aa-min-z2': 'aa-min-z2-val',
-  'psc-win': 'psc-win-val',
-  'psc-delta': 'psc-delta-val',
-  'dhw-sp': 'dhw-sp-val', 
-  'z1-sp': 'z1-sp-val', 'room-z1-sp': 'room-z1-sp-val',
-  'z2-sp': 'z2-sp-val', 'room-z2-sp': 'room-z2-sp-val',
-  'flow-z1-sp': 'flow-z1-sp-val', 'flow-z2-sp': 'flow-z2-sp-val',
-  'raw-heat': 'raw-heat-val', 'raw-elec': 'raw-elec-val', 'raw-run': 'raw-run-val',
-  'raw-out': 'raw-out-val', 'raw-room': 'raw-room-val', 'raw-delta': 'raw-delta-val',
-  'raw-hl-tm': 'raw-hl-tm-val','raw-solar-factor': 'raw-solar-factor-val',
-  'batt-soc': 'batt-soc-val',
-  'batt-max-dis': 'batt-max-dis-val',
-  'cool-start-z1': 'cool-start-z1-val', 'cool-min-z1': 'cool-min-z1-val', 'cool-min-z2': 'cool-min-z2-val',
-  'dhw-thresh': 'dhw-thresh-val',
-  'raw-cool-prod': 'raw-cool-prod-val', 'raw-cool-elec': 'raw-cool-elec-val', 'raw-cool-run': 'raw-cool-run-val', 'raw-cool-out': 'raw-cool-out-val',
-  'min-on-time': 'min-on-time-val',
-};
 
 let lastGraphUpdate = 0;
 let userZoomed = false;
@@ -1352,19 +1561,26 @@ function toggleCard(cardId) {
   localStorage.setItem('collapseState_' + cardId, isCollapsed ? 'true' : 'false');
 }
 
-// Restores the collapsed state on page load
-function initCollapsibleCards() {
-  const cards = ['card-odin-settings', 'card-physics-data'];
-  cards.forEach(id => {
-    const isCollapsed = localStorage.getItem('collapseState_' + id) === 'true';
-    if (isCollapsed) {
-      const card = document.getElementById(id);
-      if (card) card.classList.add('collapsed');
-    }
-  });
+// Toggles the visibility of a sub-card within Advanced Control
+function toggleSubCard(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.toggle('collapsed');
+  localStorage.setItem('collapseState_' + id, el.classList.contains('collapsed') ? 'true' : 'false');
 }
 
-// Shared reference to all four monitor-tab charts (lazy — safe to call before init).
+// Restores the collapsed state on page load
+function initCollapsibleCards() {
+  const cards = ['card-odin-settings', 'card-physics-data', 'sys-settings-backup', 'sys-firmware', 'sys-logs'];
+  const subCards = ['sub-power', 'sub-odin', 'sub-server', 'sub-predictive', 'sub-short-cycle'];
+  const defaultCollapsed = ['sys-settings-backup'];
+  [...cards, ...subCards].forEach(id => {
+    const stored = localStorage.getItem('collapseState_' + id);
+    const isCollapsed = stored !== null ? stored === 'true' : defaultCollapsed.includes(id);
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('collapsed', isCollapsed);
+  });
+}
 function monitorCharts() {
   return [tempChart, freqChart, outsideTempChart, statusChart].filter(Boolean);
 }
@@ -1605,8 +1821,8 @@ async function applyUpdate(btn) {
 function goToUpdateTab() {
   const tabs = document.querySelectorAll('.tab-btn');
   tabs.forEach(t => {
-    if (t.textContent.trim() === 'Logs') {
-      switchTab('logs', t);
+    if (t.textContent.trim() === 'System') {
+      switchTab('system', t);
       // smooth scroll to the banner
       document.getElementById('ota-update-banner').scrollIntoView({ behavior: 'smooth' });
     }
@@ -2051,13 +2267,14 @@ const xAxis = {
       return 2;
   };
 
+
   odinConsChart = new Chart(document.getElementById('odinConsChart').getContext('2d'), {
       type: 'bar',
       data: {
           labels: labels72,
           datasets: [
               { label: 'Expected (Grid)',  data: [], backgroundColor: 'rgba(255,176,32,0.35)',  borderColor: '#ffb020', borderWidth: 1, stack: 'Stack 0' },
-              { label: 'Expected (Solar)', data: [], backgroundColor: 'rgba(144, 213, 255, 0.35)',  borderColor: '#57B9FF', borderWidth: 1, stack: 'Stack 0' },          
+              { label: 'Expected (Solar)', data: [], backgroundColor: 'rgba(144, 213, 255, 0.35)',  borderColor: '#57B9FF', borderWidth: 1, stack: 'Stack 0' },
               { label: 'Actual Climate',   data: [], backgroundColor: 'rgba(127,255,127,0.35)', borderColor: '#7fff7f', borderWidth: 1, stack: 'Stack 1' },
               { label: 'Actual DHW',       data: [], backgroundColor: 'rgba(255,107,53,0.35)',  borderColor: '#ff6b35', borderWidth: 1, stack: 'Stack 1' },
               { label: 'Actual Standby',   data: [], backgroundColor: 'rgba(74,90,122,0.35)',   borderColor: '#4a5a7a', borderWidth: 1, stack: 'Stack 1' }
@@ -2125,6 +2342,7 @@ const xAxis = {
 
   odinTempChart = new Chart(document.getElementById('odinTempChart').getContext('2d'), {
       type: 'line',
+      plugins: [odinModeBandsPlugin],
       data: {
           labels: labels72,
           datasets: [
@@ -2152,37 +2370,62 @@ const xAxis = {
               { label: 'Actual',
                 data: [], borderColor: '#ffff00', borderWidth: 2,
                 backgroundColor: 'transparent', fill: false,
-                tension: 0.3, pointRadius: 2, spanGaps: false }
+                tension: 0.3, pointRadius: 2, spanGaps: false },
+              // Invisible line spanning every hour so the tooltip always has something to
+              // latch onto — including hours where none of the visible series has a point
+              // yet — which is what lets the decision-reason footer fire on every hour.
+              // Excluded from the tooltip body and has no legend entry (legend is off here).
+              { label: '_reasonHover', data: labels72.map(() => 0), borderWidth: 0,
+                pointRadius: 0, pointHitRadius: 12, fill: false, tension: 0, spanGaps: true,
+                order: 99, yAxisID: 'reasonAxis' }
           ]
       },
       options: {
-          responsive: true, 
-          maintainAspectRatio: false, 
+          responsive: true,
+          maintainAspectRatio: false,
           // Use nearest on the X axis so it doesn't mix up the 15m and 1h data indexes
           interaction: { mode: 'nearest', axis: 'x', intersect: false },
           plugins: {
               // Hide the default Chart.js legend boxes
-              legend: { 
-                  display: false 
+              legend: {
+                  display: false
               },
               zoom: odinZoomConfig,
               tooltip: {
+                  filter: (item) => item.dataset.label !== '_reasonHover',
                   callbacks: {
                       title: function(ctx) {
                           if (!ctx || !ctx.length) return '';
                           const index = ctx[0].dataIndex;
-                          return ctx[0].chart.data.labels[index] || '';
-                      }
+                          const label = ctx[0].chart.data.labels[index] || '';
+                          const isLive = (typeof solverMode !== 'undefined' && solverMode === 'live');
+                          const minutes = isLive ? getOdinHourMinutesAt(index)
+                              : (typeof hourlyHistory !== 'undefined' ? getOdinHourMinutesForRecord(hourlyHistory[index]) : null);
+                          const summary = summarizeOdinHourModes(minutes);
+                          const lines = summary ? [label, 'Actual: ' + summary] : [label];
+                          const r = reasonAt(index);
+                          if (r && r.label && r.label !== '—') {
+                              lines.push('Reason: ' + r.label);
+                          }
+                          return lines;
+                      },
                   }
               }
           },
-          scales: { 
-              x: xAxis, 
-              y: { 
-                  ticks: { color: '#8295b8', font: monoFont }, 
+          scales: {
+              x: xAxis,
+              y: {
+                  // Headroom above the highest line so the actual-mode strip
+                  // (drawn by odinModeBandsPlugin) always has clear space and
+                  // never touches the schedule-max band.
+                  grace: '12%',
+                  ticks: { color: '#8295b8', font: monoFont },
                   grid: { color: '#1e2d4a' },
-                  title: { display: true, text: '°C', color: '#8295b8' } 
-              } 
+                  title: { display: true, text: '°C', color: '#8295b8' }
+              },
+              // Hidden axis for the invisible _reasonHover dataset so its flat 0-line
+              // never influences the visible °C axis's autoscale range.
+              reasonAxis: { display: false, min: 0, max: 1 }
           }
       }
   });
@@ -2520,29 +2763,224 @@ function renderOdinHistory() {
     updateOdinTotals();
 }
 
+// ── Operating-mode helpers (shared by axis ticks + temp-chart mode bands) ──
+// Extracts the solver's planned operation mode for a slot, from the live
+// 72h cache or the elastic history array. Returns 0 (idle) when nothing
+// is planned, null when unknown.
+function getOdinOpModeAt(idx, isLive) {
+    if (isLive && odinDataCache && odinDataCache.operation_mode) {
+        // left overs of previous hours, register as idle
+        const expCons = odinDataCache.energy_consumption?.[idx] || 0;
+        const expProd = odinDataCache.heat_production?.[idx] || 0;
+        if (expCons === 0 && expProd === 0) return 0; // Return Idle
+
+        return odinDataCache.operation_mode[idx];
+    } else if (!isLive && typeof hourlyHistory !== 'undefined' && hourlyHistory[idx]) {
+        // Check history array for planned activity
+        const r = hourlyHistory[idx];
+        const expCons = r.exp_cons || 0;
+        const expProd = r.exp_prod || 0;
+        if (expCons === 0 && expProd === 0) return 0; // Return Idle
+
+        return r.op_mode;
+    }
+    return null;
+}
+
+const ODIN_MODE_NAMES = { 0: 'Idle', 1: 'DHW', 2: 'Heating', 3: 'Cooling', 5: 'Frost Protect', 6: 'Legionella' };
+
+function getOdinModeRGB(mode) {
+    if (mode === 1 || mode === 6) return '255,176,32';  // DHW / Legionella (Yellow)
+    if (mode === 2 || mode === 5) return '255,107,53';  // Heating / Frost (Orange)
+    if (mode === 3) return '0,200,255';                 // Cooling (Blue)
+    return null;                                        // Idle / unknown → no band
+}
+
+// ── Actual (executed) operating mode per hour ─────────────────────────────
+// Aggregated client-side from the minute records: flags bits 6-9 carry the
+// Ecodan operating mode. No firmware change needed — coverage is limited to the
+// minute-record retention window. Each map value is an Int8Array(60): the mode
+// per minute of that hour (-1 = no sample, 0 = idle, 1..7 = a real mode).
+// Key = local-baked hour index (floor(localEpochSec / 3600)).
+let actualModeByHourKey = new Map();
+let lastActualModeFetch = 0;
+
+async function fetchActualModesRange(fromTs, toTs) {
+    try {
+        const res = await fetch('/dashboard/history?type=min&from=' + fromTs + '&to=' + toTs);
+        if (!res.ok) return false;
+        const data = await res.json();
+        if (!Array.isArray(data) || data.length === 0) return false;
+
+        // Same uptime-fallback alignment as loadServerHistory
+        const serverLastTs = data[data.length - 1][0] * 1000;
+        let tOff = 0;
+        if (serverLastTs < 1577836800000) {
+            tOff = (Date.now() - (new Date().getTimezoneOffset() * 60000)) - serverLastTs;
+        }
+
+        // Build a per-MINUTE mode timeline for each hour block (Ecodan operation
+        // mode = flags bits 6-9), filling forward across sampling gaps. Keeping
+        // the full minute breakdown (not just the dominant mode) lets the strip
+        // be coloured proportionally: 10 min cooling then idle draws as 10/60
+        // blue + blank, and a DHW→cooling transition shows both parts in order.
+        const perHour = new Map(); // hourKey -> [{min, mode}, ...]
+        data.forEach(row => {
+            const flags = row[10];
+            const mode = (flags >> 6) & 0x0F;
+            if (mode > 7) return; // guard invalid; idle (mode 0) is kept
+            const tsSec = Math.floor((row[0] * 1000 + tOff) / 1000);
+            const key = Math.floor(tsSec / 3600);            // local-baked hour index
+            const minOfHour = Math.floor((tsSec % 3600) / 60); // 0..59
+            let arr = perHour.get(key);
+            if (!arr) { arr = []; perHour.set(key, arr); }
+            arr.push({ min: minOfHour, mode });
+        });
+
+        perHour.forEach((samples, key) => {
+            samples.sort((a, b) => a.min - b.min);
+            const minutes = new Int8Array(60).fill(-1); // -1 = no sample
+            for (let i = 0; i < samples.length; i++) {
+                const start = samples[i].min;
+                const end = (i + 1 < samples.length) ? samples[i + 1].min : 60;
+                for (let m = start; m < end && m < 60; m++) minutes[m] = samples[i].mode;
+            }
+            // Keep the hour only if it actually ran a real (non-idle) mode.
+            let hasMode = false;
+            for (let m = 0; m < 60; m++) if (minutes[m] > 0) { hasMode = true; break; }
+            if (hasMode) actualModeByHourKey.set(key, minutes);
+            else actualModeByHourKey.delete(key); // idle-only hour → clear stale strip
+        });
+        return true;
+    } catch (e) { return false; /* non-critical: bands simply stay empty */ }
+}
+
+// Live view refresh: last 30h covers the visible yesterday/today slots.
+// The ESP stores timestamps in local-baked epoch (real UTC + tz offset), so the
+// fetch window MUST be built in that same epoch. Using bare Date.now()/1000
+// (real UTC) makes the upper bound tz-offset hours too low, so the most recent
+// hours (e.g. the current and previous hour in CEST) fall outside the range and
+// never get fetched — the strip then looks like it "lost" the last hours.
+async function refreshOdinActualModes(force = false) {
+    if (!force && Date.now() - lastActualModeFetch < 5 * 60 * 1000) return;
+    lastActualModeFetch = Date.now();
+    const nowLocal = Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / 1000);
+    const ok = await fetchActualModesRange(nowLocal - 30 * 3600, nowLocal + 3600);
+    if (ok && odinTempChart && solverMode === 'live') odinTempChart.update('none');
+}
+
+// Per-minute mode timeline (Int8Array(60)) for a live-window slot, or null when
+// the hour is in the future or ran no real mode. Device timestamps are
+// local-baked (the dashboard reads them with getUTCHours), so hour keys are
+// local-wall-clock hour indices; build the lookup key on that same basis.
+function getOdinHourMinutesAt(idx) {
+    const nowIdx = 24 + new Date().getHours();
+    if (idx > nowIdx) return null; // future hour
+    const nowLocal = Date.now() - (new Date().getTimezoneOffset() * 60000);
+    const todayMid = Math.floor(nowLocal / 86400000) * 86400000;
+    const key = Math.floor((todayMid + (idx - 24) * 3600000) / 3600000);
+    const base = actualModeByHourKey.get(key) || null;
+
+    if (idx !== nowIdx) return base;
+
+    // Current hour: overlay the live operating mode from the last covered minute
+    // up to "now", so the strip fills toward the present between fetches.
+    const curMin = new Date().getMinutes();
+    const live = (typeof latestState !== 'undefined' && latestState && latestState.operation_mode != null)
+        ? latestState.operation_mode : null;
+    const out = base ? Int8Array.from(base) : new Int8Array(60).fill(-1);
+    if (live != null) {
+        let last = -1;
+        for (let m = 0; m < 60; m++) if (out[m] !== -1) last = m;
+        const from = (last === -1) ? curMin : last + 1; // no history yet → just the live tick
+        for (let m = from; m <= curMin && m < 60; m++) out[m] = live;
+    }
+    let any = false;
+    for (let m = 0; m < 60; m++) if (out[m] > 0) { any = true; break; }
+    return any ? out : null;
+}
+
+// Per-minute timeline for an elastic-history record (block start = ts - 30 min).
+function getOdinHourMinutesForRecord(r) {
+    if (!r) return null;
+    return actualModeByHourKey.get(Math.floor((r.timestamp - 1800000) / 3600000)) || null;
+}
+
+// Chronological "DHW → Cooling" style summary of the modes in an hour timeline.
+function summarizeOdinHourModes(minutes) {
+    if (!minutes) return null;
+    const seq = [];
+    for (let m = 0; m < 60; m++) {
+        const mode = minutes[m];
+        if (mode > 0 && seq[seq.length - 1] !== mode) seq.push(mode);
+    }
+    const names = seq.map(m => ODIN_MODE_NAMES[m]).filter(Boolean);
+    return names.length ? names.join(' → ') : null;
+}
+
+// Inline Chart.js plugin, registered on odinTempChart only:
+// A thin strip runs along the very top of the plot (in the y-axis headroom
+// created by scales.y.grace), coloured by the ACTUAL mode that ran — PER MINUTE
+// within each hour. So 10 min of cooling in an hour paints the first 10/60 of
+// that hour's width blue and leaves the rest blank; a DHW block followed by
+// cooling shows both segments in chronological order. Planned mode is shown via
+// the x-axis tick colours, not repeated here.
+const odinModeBandsPlugin = {
+    id: 'odinModeBands',
+
+    afterDatasetsDraw(chart) {
+        const { ctx, chartArea, scales } = chart;
+        if (!chartArea || !scales.x || !scales.y) return;
+
+        const isLive = (typeof solverMode !== 'undefined' && solverMode === 'live');
+        const count = isLive ? 72
+            : (typeof hourlyHistory !== 'undefined' && hourlyHistory ? hourlyHistory.length : 0);
+        if (!count) return;
+
+        const STRIP_H = 5;
+        const TOP_MARGIN = 2; // px below the plot's top edge
+        const stripY = chartArea.top + TOP_MARGIN;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, chartArea.bottom - chartArea.top);
+        ctx.clip();
+
+        for (let i = 0; i < count; i++) {
+            const left = scales.x.getPixelForValue(i - 0.5);
+            const right = scales.x.getPixelForValue(i + 0.5);
+            if (right < chartArea.left || left > chartArea.right) continue;
+
+            const minutes = isLive ? getOdinHourMinutesAt(i)
+                                   : getOdinHourMinutesForRecord(hourlyHistory[i]);
+            if (!minutes) continue;
+
+            const w = right - left;
+            // Merge contiguous same-mode minutes into runs and paint the coloured ones.
+            let m0 = 0;
+            while (m0 < 60) {
+                const mode = minutes[m0];
+                let m1 = m0 + 1;
+                while (m1 < 60 && minutes[m1] === mode) m1++;
+                const rgb = getOdinModeRGB(mode); // null for -1/idle/uncoloured modes
+                if (rgb) {
+                    const x0 = left + (m0 / 60) * w;
+                    const x1 = left + (m1 / 60) * w;
+                    ctx.fillStyle = `rgba(${rgb},0.9)`;
+                    ctx.fillRect(x0, stripY, Math.max(1, x1 - x0), STRIP_H);
+                }
+                m0 = m1;
+            }
+        }
+        ctx.restore();
+    }
+};
+
 function getOdinXAxisConfig(isLive) {
     // Helper function to extract the operation mode depending on the active data source
     const getOpMode = (ctx) => {
         if (!ctx.tick || ctx.tick.value === undefined) return null;
-        const idx = ctx.tick.value;
-
-        if (isLive && odinDataCache && odinDataCache.operation_mode) {
-            // left overs of previous hours, register as idle
-            const expCons = odinDataCache.energy_consumption?.[idx] || 0;
-            const expProd = odinDataCache.heat_production?.[idx] || 0;
-            if (expCons === 0 && expProd === 0) return 0; // Return Idle
-
-            return odinDataCache.operation_mode[idx];
-        } else if (!isLive && typeof hourlyHistory !== 'undefined' && hourlyHistory[idx]) {
-            // Check history array for planned activity
-            const r = hourlyHistory[idx];
-            const expCons = r.exp_cons || 0;
-            const expProd = r.exp_prod || 0;
-            if (expCons === 0 && expProd === 0) return 0; // Return Idle
-
-            return r.op_mode;
-        }
-        return null;
+        return getOdinOpModeAt(ctx.tick.value, isLive);
     };
 
     return {
@@ -2927,7 +3365,7 @@ function updateCharts(d) {
     // Live mode: re-render with animation after zoom is set
     monitorCharts().forEach(c => c.update());
   }
-  
+
   updateOdinCharts();
 }
 
@@ -3054,8 +3492,12 @@ function toggleCoolingUI() {
   const cGlobal = document.getElementById('cool-settings-z1');
   if (cGlobal) cGlobal.style.display = isCoolingMode ? 'block' : 'none';
 
-  const short_cycle = document.getElementById('heat-short-cycle');
-  if (short_cycle) short_cycle.style.display = isCoolingMode ? 'none' : 'block';
+  // --- Condensation Warning (only for Cool Target Temperature, index 3) ---
+  const w1 = document.getElementById('condensation-warning-z1');
+  if (w1) w1.style.display = (opModeZ1 === 3) ? 'block' : 'none';
+
+  const w2 = document.getElementById('condensation-warning-z2');
+  if (w2) w2.style.display = (opModeZ2 === 3) ? 'block' : 'none';
 
   // --- Auto Adaptive Validation ---
   // Check if Zone 2 is active in the UI
@@ -3090,12 +3532,14 @@ function render(d) {
     const cbZ1 = document.getElementById('ui-room-z1');
     if (cbZ1 && document.activeElement !== cbZ1) cbZ1.checked = d.ui_use_room_z1;
     toggleThermostatUI('z1', d.ui_use_room_z1);
+    applyRoomSourceConstraints('z1', d.ui_use_room_z1);
   }
-  
+
   if (d.ui_use_room_z2 !== undefined) {
     const cbZ2 = document.getElementById('ui-room-z2');
     if (cbZ2 && document.activeElement !== cbZ2) cbZ2.checked = d.ui_use_room_z2;
     toggleThermostatUI('z2', d.ui_use_room_z2);
+    applyRoomSourceConstraints('z2', d.ui_use_room_z2);
   }
 
   const z2Card = document.getElementById('card-z2');
@@ -3110,11 +3554,16 @@ function render(d) {
 
   const z2SrcVal = d.room_temp_source_z2;
   const z2SrcRow = document.getElementById('row-z2src');
+  const z2SrcTempRow = document.getElementById('row-z2src-temp');
   if (z2SrcVal === 'null' || z2SrcVal === null) {
     if (z2SrcRow) z2SrcRow.style.display = 'none';
+    if (z2SrcTempRow) z2SrcTempRow.style.display = 'none';
+    const z2fb = document.getElementById('row-z2-fb'); if (z2fb) z2fb.style.display = 'none';
   } else {
     if (z2SrcRow) z2SrcRow.style.display = 'flex';
+    if (z2SrcTempRow) z2SrcTempRow.style.display = 'flex';
     setSelect('sel-z2src', z2SrcVal);
+    updateRoomSourceTemp('z2', d);
   }
 
   if (d.hp_feed_temp != null && d.hp_return_temp != null) {
@@ -3129,13 +3578,18 @@ function render(d) {
   if (d.min_flow_lim) { LIMITS['aa-min'].min = d.min_flow_lim.min; LIMITS['aa-min'].max = d.min_flow_lim.max; LIMITS['aa-min'].step = 0.1; }
   if (d.max_flow_z2_lim) { LIMITS['aa-max-z2'].min = d.max_flow_z2_lim.min; LIMITS['aa-max-z2'].max = d.max_flow_z2_lim.max; LIMITS['aa-max-z2'].step = 0.1; }
   if (d.min_flow_z2_lim) { LIMITS['aa-min-z2'].min = d.min_flow_z2_lim.min; LIMITS['aa-min-z2'].max = d.min_flow_z2_lim.max; LIMITS['aa-min-z2'].step = 0.1; }
-  if (d.pred_sc_time_lim) { LIMITS['psc-win'].min = d.pred_sc_time_lim.min; LIMITS['psc-win'].max = d.pred_sc_time_lim.max; LIMITS['psc-win'].step = d.pred_sc_time_lim.step; }
-  if (d.pred_sc_delta_lim) { LIMITS['psc-delta'].min = d.pred_sc_delta_lim.min; LIMITS['psc-delta'].max = d.pred_sc_delta_lim.max; LIMITS['psc-delta'].step = d.pred_sc_delta_lim.step; }
-
   if (d.raw_cool_produced_lim) { LIMITS['raw-cool-prod'].min = d.raw_cool_produced_lim.min; LIMITS['raw-cool-prod'].max = d.raw_cool_produced_lim.max; LIMITS['raw-cool-prod'].step = d.raw_cool_produced_lim.step; }
   if (d.raw_cool_elec_consumed_lim) { LIMITS['raw-cool-elec'].min = d.raw_cool_elec_consumed_lim.min; LIMITS['raw-cool-elec'].max = d.raw_cool_elec_consumed_lim.max; LIMITS['raw-cool-elec'].step = d.raw_cool_elec_consumed_lim.step; }
   if (d.raw_cool_runtime_hours_lim) { LIMITS['raw-cool-run'].min = d.raw_cool_runtime_hours_lim.min; LIMITS['raw-cool-run'].max = d.raw_cool_runtime_hours_lim.max; LIMITS['raw-cool-run'].step = d.raw_cool_runtime_hours_lim.step; }
   if (d.raw_cool_avg_outside_temp_lim) { LIMITS['raw-cool-out'].min = d.raw_cool_avg_outside_temp_lim.min; LIMITS['raw-cool-out'].max = d.raw_cool_avg_outside_temp_lim.max; LIMITS['raw-cool-out'].step = d.raw_cool_avg_outside_temp_lim.step; }
+  if (d.raw_cool_avg_room_temp_lim) { LIMITS['raw-cool-room'].min = d.raw_cool_avg_room_temp_lim.min; LIMITS['raw-cool-room'].max = d.raw_cool_avg_room_temp_lim.max; LIMITS['raw-cool-room'].step = d.raw_cool_avg_room_temp_lim.step; }
+
+  if (d.cool_smart_z1_lim) { LIMITS['cool-start-z1'].min = d.cool_smart_z1_lim.min; LIMITS['cool-start-z1'].max = d.cool_smart_z1_lim.max; LIMITS['cool-start-z1'].step = d.cool_smart_z1_lim.step || 0.5; }
+  if (d.min_cool_flow_z1_lim) { LIMITS['cool-min-z1'].min = d.min_cool_flow_z1_lim.min; LIMITS['cool-min-z1'].max = d.min_cool_flow_z1_lim.max; LIMITS['cool-min-z1'].step = d.min_cool_flow_z1_lim.step || 0.1; }
+  if (d.min_cool_flow_z2_lim) { LIMITS['cool-min-z2'].min = d.min_cool_flow_z2_lim.min; LIMITS['cool-min-z2'].max = d.min_cool_flow_z2_lim.max; LIMITS['cool-min-z2'].step = d.min_cool_flow_z2_lim.step || 0.1; }
+  if (d.temp_feedback_z1_lim) { LIMITS['temp-fb-z1'].min = d.temp_feedback_z1_lim.min; LIMITS['temp-fb-z1'].max = d.temp_feedback_z1_lim.max; LIMITS['temp-fb-z1'].step = d.temp_feedback_z1_lim.step || 0.1; }
+  if (d.temp_feedback_z2_lim) { LIMITS['temp-fb-z2'].min = d.temp_feedback_z2_lim.min; LIMITS['temp-fb-z2'].max = d.temp_feedback_z2_lim.max; LIMITS['temp-fb-z2'].step = d.temp_feedback_z2_lim.step || 0.1; }
+
 
   if (d.min_compressor_on_time_lim) { 
     LIMITS['min-on-time'].min = d.min_compressor_on_time_lim.min; 
@@ -3224,9 +3678,8 @@ function render(d) {
   seedPending('aa-min',  d.minimum_heating_flow_temp);
   seedPending('aa-max-z2', d.maximum_heating_flow_temp_z2);
   seedPending('aa-min-z2', d.minimum_heating_flow_temp_z2);
-
-  seedPending('psc-win', d.pred_sc_time);
-  seedPending('psc-delta', d.pred_sc_delta);
+  seedPending('temp-fb-z1', d.temperature_feedback_z1);
+  seedPending('temp-fb-z2', d.temperature_feedback_z2);
 
   setToggle('sw-aa', d.auto_adaptive_control_enabled);
   setToggle('sw-dm', d.defrost_risk_handling_enabled);
@@ -3242,11 +3695,13 @@ function render(d) {
 
   setSelect('sel-hst',    d.heating_system_type);
   setSelect('sel-z1src',  d.room_temp_source_z1);
+  updateRoomSourceTemp('z1', d);
   setSelect('sel-z1mode', d.operating_mode_z1);
   setSelect('sel-z2mode', d.operating_mode_z2);
   setSelect('sel-z1ts',   d.temp_sensor_source_z1);
   setSelect('sel-z2ts',   d.temp_sensor_source_z2);
   setSelect('sel-odin-dhw-mode', d.solver_dhw_mode);
+  setSelect('sel-lockout-strategy', d.lockout_strategy);
   setSelect('sel-lockout-dur', d.lockout_duration);
 
   updateDot('dot-z1', d.z1_action);
@@ -3254,18 +3709,16 @@ function render(d) {
   updateDot('dot-z2', d.z2_action);
   updateDot('dot-room-z2', d.room_z2_action);
 
-  if (d.cool_smart_z1_lim) { LIMITS['cool-start-z1'].min = d.cool_smart_z1_lim.min; LIMITS['cool-start-z1'].max = d.cool_smart_z1_lim.max; LIMITS['cool-start-z1'].step = d.cool_smart_z1_lim.step || 0.5; }
-  if (d.min_cool_flow_z1_lim) { LIMITS['cool-min-z1'].min = d.min_cool_flow_z1_lim.min; LIMITS['cool-min-z1'].max = d.min_cool_flow_z1_lim.max; LIMITS['cool-min-z1'].step = d.min_cool_flow_z1_lim.step || 0.1; }
-  if (d.min_cool_flow_z2_lim) { LIMITS['cool-min-z2'].min = d.min_cool_flow_z2_lim.min; LIMITS['cool-min-z2'].max = d.min_cool_flow_z2_lim.max; LIMITS['cool-min-z2'].step = d.min_cool_flow_z2_lim.step || 0.1; }
-
   seedPending('cool-start-z1', d.cooling_smart_start_z1);
   seedPending('cool-min-z1', d.minimum_cooling_flow_z1);
   seedPending('cool-min-z2', d.minimum_cooling_flow_z2);
   seedPending('dhw-thresh', d.dhw_start_threshold);
 
   seedPending('min-on-time', d.min_compressor_on_time);
-  
+
   setToggle('sw-power-mode', d.power_mode);
+  setToggle('sw-service-codes', d.service_codes_enabled);
+  setToggle('sw-holiday-mode', d.holiday_mode);
 
   toggleCoolingUI();
 
@@ -3343,29 +3796,7 @@ function render(d) {
   seedPending('raw-cool-elec', d.raw_cool_elec_consumed);
   seedPending('raw-cool-run',  d.raw_cool_runtime_hours);
   seedPending('raw-cool-out',  d.raw_cool_avg_outside_temp);
-
-  const isRunning = d.status_compressor;
-  const isFlowing = (d.flow_rate && d.flow_rate > 2) || d.status_water_pump;
-  
-  const op = d.operation_mode;
-  const isHeating = (op === 2 || op === 5);
-  const isCooling = (op === 3);
-  const isDHW     = (op === 1 || op === 6);
-
-  const elFlow = document.getElementById('icon-flow');
-  if(elFlow) elFlow.classList.toggle('anim-pulse', isFlowing);
-
-  const elFreq = document.getElementById('icon-freq');
-  if(elFreq) elFreq.classList.toggle('anim-spin', isRunning);
-
-  const elPerfHeat = document.getElementById('icon-perf-heat');
-  if(elPerfHeat) elPerfHeat.classList.toggle('anim-pulse', isRunning && isHeating);
-
-  const elPerfCool = document.getElementById('icon-perf-cool');
-  if(elPerfCool) elPerfCool.classList.toggle('anim-spin', isRunning && isCooling);
-
-  const elPerfDhw = document.getElementById('icon-perf-dhw');
-  if(elPerfDhw) elPerfDhw.classList.toggle('anim-pulse', isRunning && isDHW);
+  seedPending('raw-cool-room', d.raw_cool_avg_room_temp);
 
   // --- SERVER CONTROL ---
   if (d.server_control_enabled !== undefined) {
@@ -3485,9 +3916,9 @@ async function sendAA(btn) {
     if (hasChanged('cool-start-z1')) { await apiPost({ key: 'cooling_smart_start_z1', value: pending['cool-start-z1'] }); c++; }
     if (hasChanged('cool-min-z1'))   { await apiPost({ key: 'minimum_cooling_flow_z1', value: pending['cool-min-z1'] }); c++; }
     if (hasChanged('cool-min-z2'))   { await apiPost({ key: 'minimum_cooling_flow_z2', value: pending['cool-min-z2'] }); c++; }
+    if (hasChanged('temp-fb-z1'))    { await apiPost({ key: 'temperature_feedback_z1', value: pending['temp-fb-z1'] }); c++; }
+    if (hasChanged('temp-fb-z2'))    { await apiPost({ key: 'temperature_feedback_z2', value: pending['temp-fb-z2'] }); c++; }
 
-    if (hasChanged('psc-win'))   { await apiPost({ key: 'predictive_short_cycle_high_delta_time_window', value: pending['psc-win'] }); c++; }
-    if (hasChanged('psc-delta')) { await apiPost({ key: 'predictive_short_cycle_high_delta_threshold', value: pending['psc-delta'] }); c++; }
     showToast(c > 0 ? '✓ Auto Adaptive updated' : 'No changes');
   } catch(e) { showToast('✗ ' + e.message, true); }
   btn.classList.remove('sending');
@@ -3566,8 +3997,8 @@ async function sendSC(btn) {
       c++; 
     }
     showToast(c > 0 ? '✓ Lockout Settings updated' : 'No changes');
-  } catch(e) { 
-    showToast('✗ ' + e.message, true); 
+  } catch(e) {
+    showToast('✗ ' + e.message, true);
   }
   btn.classList.remove('sending');
 }
@@ -3575,17 +4006,61 @@ async function sendSC(btn) {
 function toggleThermostatUI(zone, useRoom) {
   const vZ = document.getElementById('virtual-' + zone + '-section');
   const rZ = document.getElementById('room-' + zone + '-section');
-  
+
   if (rZ) rZ.style.display = useRoom ? 'block' : 'none';
   if (vZ) vZ.style.display = useRoom ? 'none' : 'block';
 }
 
+// Room Temp Source options: 0 = Room Thermostat, 1 = HA/REST API, 2 = Asgard Virtual Thermostat.
+// When "Use Room Thermostat" is on, the virtual thermostat can't be the source (and vice versa),
+// so we disable the invalid option. Passive call only toggles availability, no auto-send.
+function applyRoomSourceConstraints(zone, useRoom) {
+  const sel = document.getElementById('sel-' + zone + 'src');
+  if (!sel || sel.options.length < 3) return;
+  const roomOpt = sel.options[0]; // Room Thermostat
+  const vtOpt   = sel.options[2]; // Asgard Virtual Thermostat
+  if (useRoom) { vtOpt.disabled = true;  roomOpt.disabled = false; }
+  else         { roomOpt.disabled = true; vtOpt.disabled = false; }
+}
+
+// Show the live temperature of whichever Room Temp Source is selected, and reveal the
+// HA/REST input only when that source is chosen.
+function updateRoomSourceTemp(zone, d) {
+  // room_temp_source_* is published as a string index (e.g. "2"), so parse it.
+  const raw = (zone === 'z1') ? d.room_temp_source_z1 : d.room_temp_source_z2;
+  const srcIdx = parseInt(raw, 10);
+  let val = null;
+  if (srcIdx === 0)      val = (zone === 'z1') ? d.room_z1_current : d.room_z2_current;             // Room Thermostat
+  else if (srcIdx === 1) val = (zone === 'z1') ? d.temperature_feedback_z1 : d.temperature_feedback_z2; // HA / REST API
+  else if (srcIdx === 2) val = (zone === 'z1') ? d.z1_current_temp : d.z2_current_temp;             // Asgard Virtual Thermostat
+  setText(zone + 'src-temp', fmt1(val));
+
+  const fbRow = document.getElementById('row-' + zone + '-fb');
+  if (fbRow) fbRow.style.display = (srcIdx === 1) ? 'flex' : 'none';
+}
+
 async function sendUI(zone, val) {
   toggleThermostatUI(zone, val);
-  try { 
-    await apiPost({ key: 'ui_use_room_' + zone, value: val ? 1 : 0 }); 
-  } catch(e) { 
-    showToast('✗ ' + e.message, true); 
+  applyRoomSourceConstraints(zone, val);
+
+  // Auto-pick a valid Room Temp Source: Room Thermostat when using it,
+  // otherwise fall back to the Asgard Virtual Thermostat (only when the current
+  // pick just became invalid), and persist the change.
+  const sel = document.getElementById('sel-' + zone + 'src');
+  if (sel) {
+    if (val && sel.selectedIndex !== 0) {
+      sel.selectedIndex = 0;
+      try { await apiPost({ key: 'room_temp_source_' + zone, value: 0 }); } catch(e) { showToast('✗ ' + e.message, true); }
+    } else if (!val && sel.selectedIndex === 0) {
+      sel.selectedIndex = 2;
+      try { await apiPost({ key: 'room_temp_source_' + zone, value: 2 }); } catch(e) { showToast('✗ ' + e.message, true); }
+    }
+  }
+
+  try {
+    await apiPost({ key: 'ui_use_room_' + zone, value: val ? 1 : 0 });
+  } catch(e) {
+    showToast('✗ ' + e.message, true);
   }
 }
 
@@ -3603,15 +4078,16 @@ async function sendPhysics(btn) {
   btn.classList.add('sending');
   let c = 0;
   try {
-    const physicsKeys = ['raw-heat','raw-elec','raw-run','raw-out','raw-room','raw-delta','raw-hl-tm','raw-solar-factor','batt-soc','batt-max-dis', 'raw-cool-prod', 'raw-cool-elec', 'raw-cool-run', 'raw-cool-out'];
-    
-    const physicsMap = { 
+    const physicsKeys = ['raw-heat','raw-elec','raw-run','raw-out','raw-room','raw-delta','raw-hl-tm','raw-solar-factor','batt-soc','batt-max-dis', 'raw-cool-prod', 'raw-cool-elec', 'raw-cool-run', 'raw-cool-out', 'raw-cool-room'];
+
+    const physicsMap = {
       'raw-heat': 'raw_heat_produced', 'raw-elec': 'raw_elec_consumed', 'raw-run': 'raw_runtime_hours',
       'raw-out': 'raw_avg_outside_temp', 'raw-room': 'raw_avg_room_temp', 'raw-delta': 'raw_delta_room_temp',
       'raw-hl-tm': 'raw_hl_tm_product', 'raw-solar-factor': 'raw_solar_factor',
       'batt-soc': 'battery_soc_kwh', 'batt-max-dis': 'battery_max_discharge_kw',
-      'raw-cool-prod': 'raw_cool_produced', 'raw-cool-elec': 'raw_cool_elec_consumed', 
-      'raw-cool-run': 'raw_cool_runtime_hours', 'raw-cool-out': 'raw_cool_avg_outside_temp'
+      'raw-cool-prod': 'raw_cool_produced', 'raw-cool-elec': 'raw_cool_elec_consumed',
+      'raw-cool-run': 'raw_cool_runtime_hours', 'raw-cool-out': 'raw_cool_avg_outside_temp',
+      'raw-cool-room': 'raw_cool_avg_room_temp'
     };
     for (const k of physicsKeys) {
       if (hasChanged(k)) {
@@ -3652,11 +4128,45 @@ async function runOdinSolver() {
     }
 
     
-    let flowTextZ1 = document.getElementById('cool-min-z1-val').innerText;
-    let minCoolFlow = parseFloat(flowTextZ1);
-    if (isNaN(minCoolFlow)) {
-        minCoolFlow = 18.0; 
+    let minCoolFlow = pending['cool-min-z1'] ?? latestState.minimum_cooling_flow_z1;
+    if (minCoolFlow === undefined || minCoolFlow === null || isNaN(minCoolFlow)) {
+        const el = document.getElementById('cool-min-z1-val');
+        minCoolFlow = el ? parseFloat(el.value) : NaN;
     }
+    if (isNaN(minCoolFlow)) {
+        minCoolFlow = 18.0;
+    }
+    
+    // Extract trailing 24 hours. The 72h window stores yesterday at 0-23, and today at 24-47.
+    // The trailing 24 hours ends precisely at (today_offset + solveHour - 1).
+    // Mathematically, this maps perfectly to indices [solveHour] through [solveHour + 23].
+    const hist_room_temp = [];
+    const hist_out_temp = [];
+    const hist_solar = [];
+    const hist_prod = [];
+    const hist_op_mode = [];
+
+    for (let i = 0; i < 24; i++) {
+        const idx = solveHour + i;
+        if (odinDataCache && idx >= 0 && idx < 72) {
+            hist_room_temp.push(odinDataCache.actual_room_temp?.[idx] ?? null);
+            hist_out_temp.push(odinDataCache.weather?.[idx] ?? null); // Forecast acts as out_temp
+            hist_solar.push(odinDataCache.solar?.[idx] ?? null);
+            hist_prod.push(odinDataCache.actual_prod?.[idx] ?? null);
+            hist_op_mode.push(odinDataCache.operation_mode?.[idx] ?? null);
+        } else {
+            hist_room_temp.push(null); hist_out_temp.push(null); hist_solar.push(null);
+            hist_prod.push(null); hist_op_mode.push(null);
+        }
+    }
+
+    let solarFactor = pending['raw-solar-factor'] ?? latestState.raw_solar_factor;
+    if (solarFactor === undefined || solarFactor === null || isNaN(solarFactor) || solarFactor <= 0.001) {
+        solarFactor = 0.015;
+    }
+
+    const isLegionellaActive = latestState.operation_mode === 6;
+    const dhwThresh = isLegionellaActive ? 0.0 : (pending['dhw-thresh'] ?? latestState.dhw_start_threshold ?? 0.0);
 
     const payload = {
         params: {
@@ -3664,14 +4174,15 @@ async function runOdinSolver() {
             elec_consumed: pending['raw-elec'] || latestState.raw_elec_consumed || 0,
             runtime_hours: pending['raw-run'] || latestState.raw_runtime_hours || 0,
             avg_outside_temp: pending['raw-out'] || latestState.raw_avg_outside_temp || 7,
+            avg_room_temp: pending['raw-room'] || latestState.raw_avg_room_temp || 20,
+            delta_room_temp: pending['raw-delta'] ?? latestState.raw_delta_room_temp ?? 0,
             cool_produced: pending['raw-cool-prod'] || latestState.raw_cool_produced || 0,
             cool_elec_consumed: pending['raw-cool-elec'] || latestState.raw_cool_elec_consumed || 0,
             cool_runtime_hours: pending['raw-cool-run'] || latestState.raw_cool_runtime_hours || 0,
             cool_avg_outside_temp: pending['raw-cool-out'] || latestState.raw_cool_avg_outside_temp || 20,
-            avg_room_temp: pending['raw-room'] || latestState.raw_avg_room_temp || 20,
-            delta_room_temp: pending['raw-delta'] || latestState.raw_delta_room_temp || 0,
+            cool_avg_room_temp: pending['raw-cool-room'] || latestState.raw_cool_avg_room_temp || latestState.raw_avg_room_temp || 20,
             hl_tm_product: pending['raw-hl-tm'] ?? latestState.raw_hl_tm_product ?? 0.0,
-            passive_solar_gain_factor: pending['raw-solar-factor'] || latestState.raw_solar_factor || 0.015,
+            passive_solar_gain_factor: solarFactor,
             current_room_temp: latestState.z1_current_temp || 20.0,
             current_hour: solveHour,
             battery_soc_kwh: pending['batt-soc'] ?? latestState.battery_soc_kwh ?? 0.0,
@@ -3679,10 +4190,15 @@ async function runOdinSolver() {
             dhw_temp: latestState.dhw_temp || 0,
             dhw_target: latestState.dhw_flow_temp_target || 0,
             dhw_drop: latestState.dhw_flow_temp_drop || 0,
-            dhw_start_threshold: pending['dhw-thresh'] ?? latestState.dhw_start_threshold ?? 0.0,
+            dhw_start_threshold: dhwThresh,
             // 0=OFF,1=DHW_ON,2=HEAT_ON,3=COOL_ON,5=FROST_PROTECT,6=LEGIONELLA,255=UNAVAILABLE
             current_operation_mode: selectedMode,
-            min_cool_flow: minCoolFlow
+            min_cool_flow: minCoolFlow,
+            hist_room_temp: hist_room_temp,
+            hist_out_temp: hist_out_temp,
+            hist_solar: hist_solar,
+            hist_prod: hist_prod,
+            hist_op_mode: hist_op_mode
         }
     };
 
@@ -3731,7 +4247,8 @@ async function runOdinSolver() {
             inject72('energy_consumption', data.energy_consumption);
             inject72('heat_production', data.heat_production);
             inject72('expected_cost', data.expected_cost);
-            inject72('battery_discharge', data.battery_discharge); 
+            inject72('battery_discharge', data.battery_discharge);
+            inject72('decision_reason', data.decision_reason);
 
             odinDataCache.last_run = {
                 execution_ms:    data.execution_ms                 || 0,
@@ -3776,7 +4293,9 @@ async function fetchOdinData() {
         }
     } catch(e) {
       console.warn("Failed to load local ODIN cache", e);
-    } 
+    }
+    // Keep the actual-mode bands of the temp chart up to date (throttled internally)
+    refreshOdinActualModes();
 }
 
 
@@ -3920,6 +4439,134 @@ function downloadLogs() {
   a.download = `logs_${new Date().toISOString().slice(0,19)}.txt`;
   a.click();
   window.URL.revokeObjectURL(url);
+}
+
+// ── Settings Backup (Save / Restore) ──────────────────────────────────────
+// Reads current values straight from the CONTROLS registry above — nothing
+// to maintain here. Restore just replays apiPost({key, value}) for each
+// entry in the uploaded file, the same call each control's own onchange
+// handler already makes.
+
+function collectSettingsSnapshot() {
+  const out = {};
+  CONTROLS.forEach(c => {
+    if (c.type === 'switch') {
+      const el = document.getElementById(c.el);
+      if (el) out[c.key] = el.checked ? 1 : 0;
+    } else if (c.type === 'select') {
+      const el = document.getElementById(c.el);
+      if (el && el.selectedIndex >= 0) out[c.key] = el.selectedIndex;
+    } else if (c.type === 'vmode') {
+      const el = document.getElementById(c.el);
+      if (el && el.value) out[c.key] = el.value;
+    } else if (c.type === 'text') {
+      const el = document.getElementById(c.el);
+      if (el) out[c.key] = el.value;
+    } else if (c.type === 'number' || c.type === 'hyst') {
+      const v = pending[c.pkey];
+      if (v !== null && v !== undefined && !Number.isNaN(v)) out[c.key] = v;
+    }
+  });
+  return out;
+}
+
+function setSettingsBackupStatus(text, color) {
+  const el = document.getElementById('settings-backup-status');
+  if (el) { el.textContent = text; el.style.color = color || 'var(--text3)'; }
+}
+
+function downloadSettingsBackup() {
+  const settings = collectSettingsSnapshot();
+  const keyCount = Object.keys(settings).length;
+  if (keyCount === 0) {
+    showToast('✗ No settings available yet, try again shortly', true);
+    return;
+  }
+
+  const payload = {
+    _type: 'asgard_dashboard_settings',
+    _version: 1,
+    _saved_at: new Date().toISOString(),
+    _firmware_version: (latestState && latestState.latest_version) || null,
+    settings
+  };
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `asgard_settings_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.json`;
+  a.click();
+  window.URL.revokeObjectURL(url);
+
+  showToast(`✓ Saved ${keyCount} settings to file`);
+  setSettingsBackupStatus(`Last save: ${keyCount} settings, ${new Date().toLocaleTimeString()}`);
+}
+
+function triggerRestoreSettings() {
+  document.getElementById('settings-restore-file').click();
+}
+
+async function restoreSettingsFromFile() {
+  const input = document.getElementById('settings-restore-file');
+  if (!input.files || input.files.length === 0) return;
+  const file = input.files[0];
+  input.value = ''; // allow re-selecting the same file later
+
+  let parsed;
+  try {
+    const text = await file.text();
+    parsed = JSON.parse(text);
+  } catch (e) {
+    showToast('✗ Invalid settings file', true);
+    return;
+  }
+
+  const settings = (parsed && typeof parsed.settings === 'object') ? parsed.settings : parsed;
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    showToast('✗ No settings found in file', true);
+    return;
+  }
+
+  const keys = Object.keys(settings);
+  if (keys.length === 0) {
+    showToast('✗ File contains no settings', true);
+    return;
+  }
+
+  const ok = confirm(`Restore ${keys.length} settings from this file?\n\nThis will overwrite your current Settings and Solver configuration on the device.`);
+  if (!ok) return;
+
+  const btn = document.getElementById('btn-restore-settings');
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
+  setSettingsBackupStatus(`Restoring 0 / ${keys.length}...`, 'var(--warn)');
+
+  let done = 0, failed = 0;
+  for (const key of keys) {
+    try {
+      await apiPost({ key, value: settings[key] });
+      done++;
+    } catch (e) {
+      failed++;
+      console.warn('Restore failed for key', key, e);
+    }
+    setSettingsBackupStatus(`Restoring ${done + failed} / ${keys.length}...`, 'var(--warn)');
+    // Small delay so the device's single action queue isn't flooded.
+    await new Promise(r => setTimeout(r, 60));
+  }
+
+  if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+
+  if (failed === 0) {
+    showToast(`✓ Restored ${done} settings`);
+    setSettingsBackupStatus(`Last restore: ${done} settings, ${new Date().toLocaleTimeString()}`);
+  } else {
+    showToast(`⚠ Restored ${done}, ${failed} failed`, true);
+    setSettingsBackupStatus(`Last restore: ${done} ok, ${failed} failed`, 'var(--danger)');
+  }
+
+  // Pull fresh state from the device so the UI reflects the restored values.
+  setTimeout(fetchState, 500);
 }
 
 function updateStatus(text, color) {
@@ -4159,7 +4806,8 @@ async function loadServerHistory(fromTs, toTs, type = 'min') {
 
         if (monitorMode === 'live' && history.timestamps.length > 0) {
           // Apply the same index-based approach for initial load
-          const fiveHoursAgo = now - (5 * 60 * 60 * 1000);
+          const realNow = Date.now();
+          const fiveHoursAgo = realNow - (5 * 60 * 60 * 1000);
           const startIndex = history.timestamps.findIndex(t => t >= fiveHoursAgo);
           
           if (startIndex !== -1) {
@@ -4208,12 +4856,25 @@ async function loadServerHistory(fromTs, toTs, type = 'min') {
                 sched_base: getF(row[19], 100.0),
                 sched_min: getF(row[20], 100.0),
                 sched_max: getF(row[21], 100.0),
-                exp_solar_kwh: getF(row[22], 100.0)
+                exp_solar_kwh: getF(row[22], 100.0),
+                decision_reason: row.length > 23 ? getF(row[23], 1.0) : null,
+                // Dominant actually-executed mode (only present with newer firmware;
+                // otherwise resolved client-side from minute records)
+                actual_op_mode: row.length > 24 ? getF(row[24], 1.0) : null
             };
         });
-        
+
         if (solverMode !== 'live') {
             updateOdinCharts();
+        }
+
+        // Resolve the actually-executed mode per hour from the minute records
+        // for the same range (as far as minute retention reaches), then repaint
+        // the temperature chart's mode bands.
+        if (fromTs && toTs) {
+            fetchActualModesRange(fromTs, toTs).then(ok => {
+                if (ok && solverMode !== 'live' && odinTempChart) odinTempChart.update('none');
+            });
         }
     }
   } catch(e) { console.error("History fetch failed", e); }

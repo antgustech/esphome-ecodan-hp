@@ -25,7 +25,7 @@ blueprint:
           # device_class: temperature
 
 variables:
-  source: !input source_entitya
+  source: !input source_entity
   target: !input target_input
 
 trigger:
@@ -33,6 +33,14 @@ trigger:
     entity_id: !input source_entity
 
 action:
+  - condition: template
+    value_template: >-
+      {% if states[source].domain == 'climate' %}
+        {{ is_number(state_attr(source, 'current_temperature')) }}
+      {% else %}
+        {{ is_number(states(source)) }}
+      {% endif %}
+
   - variables:
       current_temp: >-
         {% if states[source].domain == 'climate' %}

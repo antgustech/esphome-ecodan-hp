@@ -131,10 +131,11 @@ substitutions:
   status_short_cycle_lockout: 'Krótki cykl: Zablokowane'
   minimum_compressor_on_time: 'Krótki cykl: Minimalny czas pracy'
   lockout_duration: 'Krótki cykl: Czas blokady (min)'
+  lockout_strategy: 'Krótki cykl: Strategia blokady'
+  lockout_strategy_option_server_control: 'Sterowanie serwerem'
+  lockout_strategy_option_flow_control: 'Sterowanie przepływem'
   short_cycle_mitigation_button: 'Krótki cykl: Anuluj blokadę'
   predictive_short_cycle_control_enabled: 'Krótki cykl: Prewencja Predykcyjna'
-  predictive_short_cycle_high_delta_time_window: 'Krótki cykl: Czas Trwania Wysokiej Delty'
-  predictive_short_cycle_high_delta_threshold: 'Krótki cykl: Wysoki Próg Delty'
   status_predictive_boost_active: 'Krótki cykl: Wzmocnienie Predykcyjne Aktywne'
   auto_adaptive_control_enabled: 'Autoadaptacja: Sterowanie'
   maximum_heating_flow_temp: 'Autoadaptacja: Maks. Temp. Zasilania Ogrzewanie'
@@ -191,3 +192,4 @@ substitutions:
   num_raw_cool_elec_consumed: "Zużycie prądu chłodzenie (Surowe)"
   num_raw_cool_runtime_hours: "Czas pracy chłodzenia (Surowe)"
   num_raw_cool_avg_outside_temp: "Śr. temp. zewn. chłodzenia (Surowe)"
+  num_raw_cool_avg_room_temp: "Surowa średnia temp. pokojowa chłodzenia"

@@ -84,8 +84,6 @@ asgard_dashboard:
 
   # ── Cycle prevention 
   predictive_short_cycle_control_enabled_id: predictive_short_cycle_control_enabled 
-  predictive_short_cycle_high_delta_time_window_id: predictive_short_cycle_high_delta_time_window
-  predictive_short_cycle_high_delta_threshold_id: predictive_short_cycle_high_delta_threshold
 
 # ── Solver & Physics
   sw_show_solver_tab_id:             sw_show_solver_tab
@@ -113,6 +111,7 @@ asgard_dashboard:
   num_raw_cool_elec_consumed_id:     num_raw_cool_elec_consumed
   num_raw_cool_runtime_hours_id:     num_raw_cool_runtime_hours
   num_raw_cool_avg_outside_temp_id:  num_raw_cool_avg_outside_temp
+  num_raw_cool_avg_room_temp_id:     num_raw_cool_avg_room_temp
 
   solver_kwh_meter_feedback_source_id: solver_kwh_meter_feedback_source
   solver_kwh_meter_feedback_id: solver_kwh_meter_feedback
@@ -122,15 +121,22 @@ asgard_dashboard:
   num_cooling_smart_start_z1_id:     cooling_smart_start_temp
   num_min_cooling_flow_z1_id:        minimum_cooling_flow_temp_z1
 
+# ── Room temp feedback (HA / REST API) Z1
+  num_temperature_feedback_z1_id:    temperature_feedback_z1
+
 # ── Outside unit
   liquid_pipe_temp_id:                ou_liquid_pipe_temp
   condensing_temp_id:                 hp_refrigerant_condensing_temp
 
   # power mode switch
   sw_power_mode_id: heatpump_switch_power_mode
+  # service codes & holiday
+  sw_service_codes_enabled_id: heatpump_switch_service_codes_enabled
+  sw_holiday_mode_id:          heatpump_switch_holiday
 
   # short cycle prevention
   minimum_compressor_on_time_id: minimum_compressor_on_time
   lockout_duration_id: lockout_duration
+  lockout_strategy_id: lockout_strategy
   status_short_cycle_lockout_id: status_short_cycle_lockout
   short_cycle_mitigation_button_id: short_cycle_mitigation_button

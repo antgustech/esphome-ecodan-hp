@@ -101,14 +101,16 @@ struct DashboardSnapshot {
   NumData num_min_flow_temp_z2;
   NumData num_hysteresis_z1;
   NumData num_hysteresis_z2;
-  NumData pred_sc_time;
-  NumData pred_sc_delta;
   NumData num_min_compressor_on_time;
 
   // Cooling settings
   NumData num_cooling_smart_start_z1;
   NumData num_min_cooling_flow_z1;
-  NumData num_min_cooling_flow_z2; 
+  NumData num_min_cooling_flow_z2;
+
+  // HA / REST API room temperature feedback (per zone)
+  NumData num_temperature_feedback_z1;
+  NumData num_temperature_feedback_z2;
 
 
   // Climate data
@@ -130,6 +132,7 @@ struct DashboardSnapshot {
   int sel_temp_source_z1{-1};
   int sel_temp_source_z2{-1};
   int sel_lockout_duration{-1};
+  int sel_lockout_strategy{-1};
 
   // Text sensors (fixed-size to avoid heap allocation in snapshot)
   char version[32]{0};
@@ -148,6 +151,10 @@ struct DashboardSnapshot {
   bool sw_sc_prohibit_z2_heating{false};
   bool sw_sc_prohibit_z2_cooling{false};
 
+  // Service codes & Holiday
+  bool sw_service_codes_enabled{false};
+  bool sw_holiday_mode{false};
+
   NumData num_raw_heat_produced;
   NumData num_raw_elec_consumed;
   NumData num_raw_runtime_hours;
@@ -161,6 +168,7 @@ struct DashboardSnapshot {
   NumData num_raw_cool_elec_consumed;
   NumData num_raw_cool_runtime_hours;
   NumData num_raw_cool_avg_outside_temp;
+  NumData num_raw_cool_avg_room_temp;
 
   NumData num_battery_soc_kwh;
   NumData num_battery_max_discharge_kw;
@@ -237,6 +245,8 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
   void set_sw_regular_dhw(switch_::Switch *s)                 { sw_regular_dhw_ = s; }
   void set_pred_sc_switch(switch_::Switch *s)                 { pred_sc_switch_ = s; }
   void set_sw_power_mode(switch_::Switch *s)                  { sw_power_mode_ = s; }
+  void set_sw_service_codes_enabled(switch_::Switch *s)        { sw_service_codes_enabled_ = s; }
+  void set_sw_holiday_mode(switch_::Switch *s)                 { sw_holiday_mode_ = s; }
 
   // Server control
   void set_sw_server_control(switch_::Switch *s)              { sw_server_control_ = s; }
@@ -255,6 +265,7 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
   void set_sel_temp_source_z1(select::Select *s)              { sel_temp_source_z1_ = s; }
   void set_sel_temp_source_z2(select::Select *s)              { sel_temp_source_z2_ = s; }
   void set_lockout_duration(select::Select *s)                { lockout_duration_ = s; }
+  void set_lockout_strategy(select::Select *s)                { lockout_strategy_ = s; }
 
   // Numbers
   void set_num_aa_setpoint_bias(number::Number *n)            { num_aa_setpoint_bias_ = n; }
@@ -264,8 +275,6 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
   void set_num_min_flow_temp_z2(number::Number *n)            { num_min_flow_temp_z2_ = n; }
   void set_num_hysteresis_z1(number::Number *n)               { num_hysteresis_z1_ = n; }
   void set_num_hysteresis_z2(number::Number *n)               { num_hysteresis_z2_ = n; }
-  void set_pred_sc_time(number::Number *n)                    { pred_sc_time_ = n; }
-  void set_pred_sc_delta(number::Number *n)                   { pred_sc_delta_ = n; }
   void set_num_dhw_start_threshold(number::Number *n)         { num_dhw_start_threshold_ = n; }
   void set_minimum_compressor_on_time(number::Number *n)      { minimum_compressor_on_time_ = n; }
 
@@ -273,6 +282,8 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
   void set_num_cooling_smart_start_z1(number::Number *n)      { num_cooling_smart_start_z1_ = n; }
   void set_num_min_cooling_flow_z1(number::Number *n)         { num_min_cooling_flow_z1_ = n; }
   void set_num_min_cooling_flow_z2(number::Number *n)         { num_min_cooling_flow_z2_ = n; }
+  void set_num_temperature_feedback_z1(number::Number *n)     { num_temperature_feedback_z1_ = n; }
+  void set_num_temperature_feedback_z2(number::Number *n)     { num_temperature_feedback_z2_ = n; }
 
   // Climate
   void set_dhw_climate(climate::Climate *c)                   { dhw_climate_ = c; }
@@ -311,6 +322,7 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
   void set_num_raw_cool_elec_consumed(number::Number *v)      { num_raw_cool_elec_consumed_ = v; }
   void set_num_raw_cool_runtime_hours(number::Number *v)      { num_raw_cool_runtime_hours_ = v; }
   void set_num_raw_cool_avg_outside_temp(number::Number *v)   { num_raw_cool_avg_outside_temp_ = v; }
+  void set_num_raw_cool_avg_room_temp(number::Number *v)      { num_raw_cool_avg_room_temp_ = v; }
 
   void set_num_battery_soc_kwh(number::Number *n)             { num_battery_soc_kwh_ = n; }
   void set_num_battery_max_discharge_kw(number::Number *n)    { num_battery_max_discharge_kw_ = n; }
@@ -319,6 +331,11 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
   bool canHandle(AsyncWebServerRequest *request) const override;
   void handleRequest(AsyncWebServerRequest *request) override;
   bool isRequestHandlerTrivial() const override { return false; }
+  // esphome's web_server_idf framework fully drains the body of any POST
+  // whose Content-Type isn't application/x-www-form-urlencoded or
+  // multipart/form-data (e.g. our application/json) via this callback
+  // *before* calling handleRequest()
+  void handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) override;
 
   // Solver run stats — populated from YAML after each solve
   struct LastRunStats {
@@ -351,6 +368,7 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
                        const std::vector<float>& solar,
                        const std::vector<float>& prices,
                        const std::vector<float>& op_mode,
+                       const std::vector<float>& decision_reason,
                        const LastRunStats& run_stats);
 
   void load_odin_data(int current_day, int current_hour = 0);
@@ -363,6 +381,7 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
                           float actual_room_temp, float standby_cons);
 
   void sync_odin_day();
+  float get_odin_value(const char* name, int idx);
 
  protected:
   void handle_root_(AsyncWebServerRequest *request);
@@ -374,6 +393,11 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
 
   std::vector<DashboardAction> action_queue_;
   SemaphoreHandle_t action_lock_ = NULL;
+
+  // Accumulates the raw POST body across handleBody() calls (see comment on
+  // handleBody() above); consumed and cleared by handle_set_().
+  std::string post_body_;
+  bool post_body_oversized_{false};
 
   // Component
   ecodan::EcodanHeatpump *ecodan_{nullptr};
@@ -437,6 +461,8 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
   switch_::Switch *sw_regular_dhw_{nullptr};
   switch_::Switch *pred_sc_switch_{nullptr};
   switch_::Switch *sw_power_mode_{nullptr};
+  switch_::Switch *sw_service_codes_enabled_{nullptr};
+  switch_::Switch *sw_holiday_mode_{nullptr};
 
   // Selects
   select::Select *sel_heating_system_type_{nullptr};
@@ -448,6 +474,7 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
   select::Select *sel_temp_source_z2_{nullptr};
   select::Select *solver_dhw_mode_{nullptr};
   select::Select *lockout_duration_{nullptr};
+  select::Select *lockout_strategy_{nullptr};
 
   // Numbers
   number::Number *num_aa_setpoint_bias_{nullptr};
@@ -457,11 +484,11 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
   number::Number *num_min_flow_temp_z2_{nullptr};
   number::Number *num_hysteresis_z1_{nullptr};
   number::Number *num_hysteresis_z2_{nullptr};
-  number::Number *pred_sc_time_{nullptr};
-  number::Number *pred_sc_delta_{nullptr};
   number::Number *num_cooling_smart_start_z1_{nullptr};
   number::Number *num_min_cooling_flow_z1_{nullptr};
   number::Number *num_min_cooling_flow_z2_{nullptr};
+  number::Number *num_temperature_feedback_z1_{nullptr};
+  number::Number *num_temperature_feedback_z2_{nullptr};
   number::Number *minimum_compressor_on_time_{nullptr};
 
   // Climate
@@ -504,6 +531,7 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
   number::Number *num_raw_cool_elec_consumed_{nullptr};
   number::Number *num_raw_cool_runtime_hours_{nullptr};
   number::Number *num_raw_cool_avg_outside_temp_{nullptr};
+  number::Number *num_raw_cool_avg_room_temp_{nullptr};
   number::Number *num_battery_soc_kwh_{nullptr};
   number::Number *num_battery_max_discharge_kw_{nullptr};
   number::Number *num_dhw_start_threshold_{nullptr};
@@ -546,11 +574,13 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
 
   // Used by lfs_persist_odin_, load_odin_data, and handle_odin_request_.
   struct OdinArrayEntry {
-    int                  slot; // LFS cache-slot index (0-18)
+    int                  slot; // LFS cache-slot index
     const char* name; // JSON key used in the API response
     std::vector<float>* vec;  // pointer to the corresponding member vector
   };
-  std::array<OdinArrayEntry, 19> odin_array_map_();
+
+  static constexpr int ODIN_ARRAY_COUNT = 20;
+  std::array<OdinArrayEntry, ODIN_ARRAY_COUNT> odin_array_map_();
   void ensure_odin_vectors_();
 
   static void lfs_odin_task_(void* arg);
@@ -592,6 +622,10 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
   std::vector<float> odin_prices_;              // electricity prices EUR/MWh
   std::vector<float> odin_operation_mode_;
 
+  // 0=NONE 1=IDLE 2=COMFORT_HARD 3=COMFORT_SOFT 4=THERMAL_BUFFER 5=MODULATION
+  // 6=ENERGY_COST 7=DHW 8=BLOCKED_STOP_PRICE 9=BLOCKED_SOLAR_ONLY 10=BLOCKED_LIMIT.
+  std::vector<float> odin_decision_reason_;
+
   bool              odin_data_ready_{false};
   int               odin_stored_day_{-1};
   std::atomic<bool> odin_lfs_dirty_{false};
@@ -610,7 +644,7 @@ class EcodanDashboard : public Component, public AsyncWebHandler {
   static int16_t pack_temp_(float val);
   static bool bin_state_(binary_sensor::BinarySensor *b);
 
-  const time_t timestamp() const;
+  time_t timestamp() const;
 };
 
 } // namespace asgard_dashboard

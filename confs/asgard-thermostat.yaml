@@ -60,7 +60,7 @@ sensor:
       // Index 2: MRC/RCx
       if (idx == 2) {
         auto& status = id(ecodan_instance).get_status();
-        return "${zone_identifier}" == "z1" ? status.Zone1RoomTemperature : status.Zone2RoomTemperature;
+        return strcmp("${zone_identifier}", "z1") == 0 ? status.Zone1RoomTemperature : status.Zone2RoomTemperature;
       }
       return NAN;
 
@@ -150,6 +150,12 @@ climate:
             lambda: 'return !id(sw_odin_override_${zone_identifier}).state;'
           then:
             - switch.turn_off: asgard_relay_${zone_identifier}
+    off_mode:
+      - if:
+          condition:
+            switch.is_on: sw_odin_override_${zone_identifier}
+          then:
+            - switch.turn_off: sw_odin_override_${zone_identifier}
 
     # disabled min runtimes, too many questions
     min_heating_run_time: 0s

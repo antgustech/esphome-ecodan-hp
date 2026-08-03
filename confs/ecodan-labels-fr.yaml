@@ -133,10 +133,11 @@ substitutions:
   minimum_compressor_on_time: 'Court-circuit: Durée minimale du compresseur'
   cooling_smart_start_temp: 'Auto-Adaptatif: Temp. de Démarrage Intelligent Refroidissement'
   lockout_duration: 'Court-circuit: Durée du verrouillage (min)'
+  lockout_strategy: 'Court-circuit: Stratégie de verrouillage'
+  lockout_strategy_option_server_control: 'Contrôle serveur'
+  lockout_strategy_option_flow_control: 'Contrôle du débit'
   short_cycle_mitigation_button: 'Court-circuit: Annuler le verrouillage'
   predictive_short_cycle_control_enabled: 'Court-circuit: Prévention Prédictive'
-  predictive_short_cycle_high_delta_time_window: 'Court-circuit: Durée Delta Élevé'
-  predictive_short_cycle_high_delta_threshold: 'Court-circuit: Seuil Delta Élevé'
   status_predictive_boost_active: 'Court-circuit: Boost Prédictif Actif'
   auto_adaptive_control_enabled: 'Auto-Adaptatif: Commande'
   maximum_heating_flow_temp: 'Auto-Adaptatif: Temp. Max. de Départ Chauffage'
@@ -192,3 +193,4 @@ substitutions:
   num_raw_cool_elec_consumed: "Élec. consommée refroid. (Brut)"
   num_raw_cool_runtime_hours: "Temps fonct. refroid. (Brut)"
   num_raw_cool_avg_outside_temp: "Temp. ext. moyenne refroid. (Brut)"
+  num_raw_cool_avg_room_temp: "Temp. ambiante moyenne brute refroidissement"

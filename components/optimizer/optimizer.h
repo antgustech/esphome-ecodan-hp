@@ -22,13 +22,13 @@ namespace esphome
       float dhw_old_z1_setpoint_ = NAN;
       float dhw_old_z2_setpoint_ = NAN;
 
-      // Predictive short-cycle prevention
-      float pcp_old_z1_setpoint_ = NAN;
-      float pcp_old_z2_setpoint_ = NAN;
-      float pcp_adjustment_z1_   = 0.0f;
-      float pcp_adjustment_z2_   = 0.0f;
-      uint32_t predictive_delta_start_time_z1_ = 0;
-      uint32_t predictive_delta_start_time_z2_ = 0;
+      float predictive_boost_base_z1_setpoint_ = NAN;
+      float predictive_boost_base_z2_setpoint_ = NAN;
+
+      // Short-cycle lockout strategy state
+      int   active_lockout_strategy_      = 0;
+      float flow_lockout_old_z1_setpoint_ = NAN;
+      float flow_lockout_old_z2_setpoint_ = NAN;
 
       // Compressor / defrost tracking
       struct DefrostState {
@@ -58,6 +58,11 @@ namespace esphome
               default:  return OptimizerOperationMode::OFF;
           }
       };
+
+      bool is_cooling_mode(const ecodan::Status& status, OptimizerZone zone) {
+        auto ecodan_zone = zone == OptimizerZone::ZONE_1 ? ecodan::Zone::ZONE_1 : ecodan::Zone::ZONE_2;
+        return status.has_cooling() && status.is_auto_adaptive_cooling(ecodan_zone);
+      }
 
       uint32_t compressor_start_time_ = 0;
       uint32_t last_defrost_time_     = 0;
@@ -89,9 +94,10 @@ namespace esphome
       float    daily_max_output_power_      {0.0f};
       uint32_t last_check_ms_               = 0;
       int      last_processed_day_          = -1;
-      int      last_processed_hour_         {-1};
       int      last_pre_hour_triggered_      {-1};
       float    daily_runtime_cool_          = 0.0f;
+      float    daily_cool_outside_temp_sum_   = 0.0f;
+      int      daily_cool_outside_temp_count_ = 0;
 
       // Strict energy separation buckets
       float    last_global_prod_            = -1.0f;
@@ -103,6 +109,22 @@ namespace esphome
       float    last_total_dhw_produced_     = 0.0f;
       float    last_total_dhw_consumed_     = 0.0f;
       float    last_total_all_consumed_     = 0.0f;
+
+      // Persistent energy bucket storage across reboots
+      struct EnergyBucketState {
+          uint32_t day = 0;
+          float last_total_heating_produced = 0.0f;
+          float last_total_heating_consumed = 0.0f;
+          float last_total_cooling_produced = 0.0f;
+          float last_total_cooling_consumed = 0.0f;
+          float last_total_dhw_produced = 0.0f;
+          float last_total_dhw_consumed = 0.0f;
+          float last_total_all_consumed = 0.0f;
+      };
+      void restore_energy_buckets_();
+      void save_energy_buckets_(int day);
+      esphome::ESPPreferenceObject energy_buckets_pref_;
+      bool restore_attempted_ = false;
 
       // 10-minute wind-down window: keeps buckets open after compressor stops
       // to catch delayed meter ticks. Initialised to UINT32_MAX - 700000 so the
@@ -173,10 +195,13 @@ namespace esphome
 
       // ── events.cpp ────────────────────────────────────────────────────
       void on_feed_temp_change(float actual_flow_temp, OptimizerZone zone);
+      void handle_dhw_feed_temp_(float actual_flow_temp, OptimizerZone zone);
       void on_operation_mode_change(uint8_t new_mode, uint8_t previous_mode);
 
       // ── prevention.cpp ────────────────────────────────────────────────
-      void predictive_short_cycle_check_for_zone_(const ecodan::Status &status, OptimizerZone zone);
+      void predictive_short_cycle_check_for_zone_(const ecodan::Status &status, OptimizerZone zone, bool is_cooling);
+      void clear_predictive_boost_(OptimizerZone zone, bool restore);
+      void apply_flow_lockout_setpoint_(const ecodan::Status &status, OptimizerZone zone, float actual_flow_temp, bool initial);
 
       // ── stats.cpp ─────────────────────────────────────────────────────
       void update_learning_model(int day_of_year);
@@ -188,7 +213,7 @@ namespace esphome
       bool  is_heating_active(const ecodan::Status &status);
       bool  is_cooling_active(const ecodan::Status &status);
       float clamp_flow_temp(float flow, float min_temp, float max_temp);
-      float enforce_step_limit(const ecodan::Status &status, float actual_flow, float calculated_flow);
+      float enforce_step_limit(const ecodan::Status &status, float actual_flow, float calculated_flow, bool is_cooling_mode);
       bool  set_flow_temp(float flow, OptimizerZone zone);
       float round_nearest(float input)      { return round(input * 10.0f) / 10.0f; }
       float round_nearest_half(float input) { return floor(input * 2.0) / 2.0f; }
@@ -207,13 +232,12 @@ namespace esphome
       void on_defrost_state_change(bool x, bool x_previous);
 
       // Lockout
-      void restore_svc_state();
+      void restore_pre_lockout_state();
       void start_lockout();
       void check_lockout_expiration();
 
-      // Boost sensor
+      // Predictive boost sensor
       bool get_predictive_boost_state();
-      void reset_predictive_boost();
       void update_boost_sensor();
 
       // Temperature helpers (used by YAML / dashboard)
@@ -223,6 +247,7 @@ namespace esphome
       float get_return_temp(OptimizerZone zone);
       float get_flow_setpoint(OptimizerZone zone);
       FlowLimits get_flow_limits(OptimizerZone zone);
+      FlowLimits get_cool_flow_limits(OptimizerZone zone);
 
       // Solver / ODIN
       bool aa_enabled() const;

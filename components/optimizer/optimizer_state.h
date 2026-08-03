@@ -1,7 +1,7 @@
 #pragma once
 
 #include "esphome.h"
-#include "esphome/components/thermostat/thermostat_climate.h"
+#include "esphome/components/climate/climate.h"
 
 // forward declare EcodanHeatpump
 namespace esphome
@@ -69,7 +69,7 @@ namespace esphome
         esphome::switch_::Switch *sw_regular_dhw{nullptr};
 
         esphome::binary_sensor::BinarySensor *status_short_cycle_lockout;
-        esphome::binary_sensor::BinarySensor *status_predictive_boost_active;
+        esphome::binary_sensor::BinarySensor *status_predictive_boost_active{nullptr};
         esphome::binary_sensor::BinarySensor *status_compressor;
         esphome::binary_sensor::BinarySensor *status_defrost;
 
@@ -97,8 +97,6 @@ namespace esphome
         esphome::number::Number *minimum_cooling_flow_temp_z2;
         esphome::number::Number *cooling_smart_start_temp;
         esphome::number::Number *minimum_compressor_on_time;
-        esphome::number::Number *predictive_short_cycle_high_delta_time_window;
-        esphome::number::Number *predictive_short_cycle_high_delta_threshold;
         esphome::number::Number *num_raw_heat_produced;
         esphome::number::Number *num_raw_elec_consumed;
         esphome::number::Number *num_raw_runtime_hours;
@@ -114,16 +112,23 @@ namespace esphome
         esphome::number::Number *num_raw_cool_elec_consumed{nullptr};
         esphome::number::Number *num_raw_cool_runtime_hours{nullptr};
         esphome::number::Number *num_raw_cool_avg_outside_temp{nullptr};
+        // Cooling-day room average — counterpart of num_raw_avg_room_temp (which is
+        // frozen in lockstep with the heating pair). Pairs with cool_avg_outside_temp.
+        esphome::number::Number *num_raw_cool_avg_room_temp{nullptr};
 
         esphome::select::Select *heating_system_type;
         esphome::select::Select *temperature_feedback_source_z1;
         esphome::select::Select *temperature_feedback_source_z2;
         esphome::select::Select *lockout_duration;
+        esphome::select::Select *lockout_strategy{nullptr};
         esphome::select::Select *solver_kwh_meter_feedback_source;
         esphome::select::Select *solver_dhw_mode{nullptr};
 
-        esphome::thermostat::ThermostatClimate *asgard_vt_z1;
-        esphome::thermostat::ThermostatClimate *asgard_vt_z2;
+        // Only base climate::Climate state (current_temperature/target_temperature)
+        // is read via these pointers (see optimizer/utility.cpp), so they don't
+        // need to be typed as thermostat::ThermostatClimate specifically.
+        esphome::climate::Climate *asgard_vt_z1;
+        esphome::climate::Climate *asgard_vt_z2;
 
         uint32_t &lockout_expiration_timestamp;
     };

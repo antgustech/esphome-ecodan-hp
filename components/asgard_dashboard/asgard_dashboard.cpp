@@ -12,9 +12,9 @@
 #include <memory>
 #include <esp_littlefs.h>
 #include <sys/stat.h>
+#include <string>
 #include "esphome/components/ecodan/ecodan.h"
 
-// #include "esp_system.h"
 // #include "esp_heap_caps.h"
 
 namespace esphome {
@@ -23,7 +23,7 @@ namespace asgard_dashboard {
 static const char *const TAG = "asgard_dashboard";
 
 //#define TEST_TS
-const time_t EcodanDashboard::timestamp() const {
+time_t EcodanDashboard::timestamp() const {
 #ifndef TEST_TS
   if (this->ecodan_ != nullptr) {
     auto status = this->ecodan_->get_status();
@@ -143,6 +143,26 @@ void EcodanDashboard::loop() {
   }
 }
 
+float EcodanDashboard::get_odin_value(const char* name, int idx) {
+    float val = NAN;
+    if (snapshot_mutex_ != NULL && xSemaphoreTake(snapshot_mutex_, pdMS_TO_TICKS(100)) == pdTRUE) {
+        auto map = this->odin_array_map_();
+        for (const auto& entry : map) {
+            if (strcmp(entry.name, name) == 0) {
+                // Ensure the vector exists and the index is within bounds
+                if (entry.vec != nullptr && idx >= 0 && idx < entry.vec->size()) {
+                    val = (*entry.vec)[idx];
+                }
+                break;
+            }
+        }
+        xSemaphoreGive(snapshot_mutex_);
+    } else {
+        ESP_LOGW(TAG, "get_odin_value: Failed to acquire snapshot_mutex_");
+    }
+    return val;
+}
+
 bool EcodanDashboard::canHandle(AsyncWebServerRequest *request) const {
   char url_buf[AsyncWebServerRequest::URL_BUF_SIZE];
   auto url = request->url_to(url_buf);
@@ -242,6 +262,21 @@ void EcodanDashboard::handle_js_(AsyncWebServerRequest *request) {
   send_chunked_(request, "application/javascript", file_data, file_len, "public, max-age=31536000");
 }
 
+void EcodanDashboard::handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index,
+                                  size_t total) {
+  if (index == 0) {
+    this->post_body_.clear();
+    this->post_body_oversized_ = total > 1024;
+    if (!this->post_body_oversized_) {
+      this->post_body_.reserve(total);
+    }
+  }
+  if (this->post_body_oversized_) {
+    return;  // still drained by the framework; just don't accumulate it
+  }
+  this->post_body_.append(reinterpret_cast<const char *>(data), len);
+}
+
 void EcodanDashboard::handle_set_(AsyncWebServerRequest *request) {
   httpd_req_t *req = *request;
 
@@ -253,8 +288,13 @@ void EcodanDashboard::handle_set_(AsyncWebServerRequest *request) {
     return;
   }
 
-  size_t content_len = req->content_len;
-  if (content_len == 0 || content_len > 1024) {
+  // The request body was already fully consumed by the framework's
+  // handle_raw_body_() before handleRequest()/handle_set_() ever runs (see
+  // handleBody() above for why) -- there is nothing left to read from `req`
+  // here, so we use the buffer handleBody() filled instead of httpd_req_recv().
+  if (this->post_body_oversized_) {
+    this->post_body_.clear();
+    this->post_body_oversized_ = false;
     httpd_resp_set_status(req, "400 Bad Request");
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_set_hdr(req, "Connection", "close");
@@ -262,33 +302,22 @@ void EcodanDashboard::handle_set_(AsyncWebServerRequest *request) {
     return;
   }
 
-  // Memory-safe allocation on the heap instead of the stack
-  char *body = (char *)malloc(content_len + 1);
-  if (body == nullptr) {
-    httpd_resp_set_status(req, "500 Internal Server Error");
-    httpd_resp_set_type(req, "text/plain");
-    httpd_resp_set_hdr(req, "Connection", "close");
-    httpd_resp_send(req, "Out of Memory", HTTPD_RESP_USE_STRLEN);
-    return;
-  }
-  memset(body, 0, content_len + 1);
-
-  int received = httpd_req_recv(req, body, content_len);
-  if (received <= 0) {
-    free(body);
+  if (this->post_body_.empty()) {
     httpd_resp_set_status(req, "400 Bad Request");
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_set_hdr(req, "Connection", "close");
-    httpd_resp_send(req, "Read failed", HTTPD_RESP_USE_STRLEN);
+    httpd_resp_send(req, "Empty body", HTTPD_RESP_USE_STRLEN);
     return;
   }
-  body[received] = '\0';
 
-  ESP_LOGI(TAG, "Dashboard POST body: %s", body);
+  const std::string body = std::move(this->post_body_);
+  this->post_body_.clear();
+
+  ESP_LOGI(TAG, "Dashboard POST body: %s", body.c_str());
 
   // Restore the original JSON parsing logic for keys and values
   char key[64] = {0};
-  const char *kp = strstr(body, "\"key\":");
+  const char *kp = strstr(body.c_str(), "\"key\":");
   if (kp) {
     kp += 6;
     while (*kp == ' ' || *kp == '"') kp++;
@@ -297,7 +326,6 @@ void EcodanDashboard::handle_set_(AsyncWebServerRequest *request) {
   }
 
   if (strlen(key) == 0) {
-    free(body);
     httpd_resp_set_status(req, "400 Bad Request");
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_set_hdr(req, "Connection", "close");
@@ -309,7 +337,7 @@ void EcodanDashboard::handle_set_(AsyncWebServerRequest *request) {
   float fval = 0.0f;
   bool is_string = false;
 
-  const char *vp = strstr(body, "\"value\":");
+  const char *vp = strstr(body.c_str(), "\"value\":");
   if (vp) {
     vp += 8;
     while (*vp == ' ') vp++;
@@ -322,9 +350,6 @@ void EcodanDashboard::handle_set_(AsyncWebServerRequest *request) {
       fval = static_cast<float>(atof(vp));
     }
   }
-
-  // Always free heap memory immediately after extracting values
-  free(body);
 
   ESP_LOGI(TAG, "Dashboard set: key=%s value=%s/%.2f", key,
            is_string ? strval : "-", is_string ? 0.0f : fval);
@@ -360,7 +385,7 @@ void EcodanDashboard::dispatch_set_(const std::string &key, const std::string &s
   }
 
   auto doSwitch = [&](switch_::Switch *sw) {
-    if (!sw) { ESP_LOGW(TAG, "Switch not configured"); return; }
+    if (!sw) { ESP_LOGW(TAG, "Switch not configured: key=%s", key.c_str()); return; }
     fval > 0.5f ? sw->turn_on() : sw->turn_off();
   };
   if (key == "auto_adaptive_control_enabled") { doSwitch(sw_auto_adaptive_); return; }
@@ -369,6 +394,8 @@ void EcodanDashboard::dispatch_set_(const std::string &key, const std::string &s
   if (key == "force_dhw")                     { doSwitch(sw_force_dhw_);     return; } 
   if (key == "sw_regular_dhw")                { doSwitch(sw_regular_dhw_);   return; }
   if (key == "power_mode")                    { doSwitch(sw_power_mode_);    return; }
+  if (key == "service_codes_enabled")           { doSwitch(sw_service_codes_enabled_); return; }
+  if (key == "holiday_mode")                    { doSwitch(sw_holiday_mode_);        return; }
   if (key == "predictive_short_cycle_control_enabled") { doSwitch(pred_sc_switch_);   return; }
   if (key == "use_dynamic_cost_solver")       { doSwitch(sw_use_solver_);    return; }
   if (key == "show_solver_tab_enabled")       { doSwitch(sw_show_solver_tab_); this->odin_lfs_dirty_ = true; return; }
@@ -382,7 +409,7 @@ void EcodanDashboard::dispatch_set_(const std::string &key, const std::string &s
   if (key == "server_control_prohibit_z2_cooling") { doSwitch(sw_sc_prohibit_z2_cooling_);  return; }
 
   auto doSelect = [&](select::Select *sel) {
-    if (!sel) { ESP_LOGW(TAG, "Select not configured"); return; }
+    if (!sel) { ESP_LOGW(TAG, "Select not configured: key=%s", key.c_str()); return; }
     auto call = sel->make_call();
     if (is_string) {
       call.set_option(sval);
@@ -401,9 +428,10 @@ void EcodanDashboard::dispatch_set_(const std::string &key, const std::string &s
   if (key == "temp_sensor_source_z2") { doSelect(sel_temp_source_z2_); return; } 
   if (key == "solver_dhw_mode")       { doSelect(solver_dhw_mode_); return; }
   if (key == "lockout_duration")      { doSelect(lockout_duration_); return; }
+  if (key == "lockout_strategy")      { doSelect(lockout_strategy_); return; }
 
   auto doNumber = [&](number::Number *n) {
-    if (!n) { ESP_LOGW(TAG, "Number not configured"); return; }
+    if (!n) { ESP_LOGW(TAG, "Number not configured: key=%s", key.c_str()); return; }
     auto call = n->make_call();
     call.set_value(fval);
     call.perform();
@@ -416,6 +444,8 @@ void EcodanDashboard::dispatch_set_(const std::string &key, const std::string &s
   if (key == "cooling_smart_start_z1")       { doNumber(num_cooling_smart_start_z1_); return; }
   if (key == "minimum_cooling_flow_z1")      { doNumber(num_min_cooling_flow_z1_); return; }
   if (key == "minimum_cooling_flow_z2")      { doNumber(num_min_cooling_flow_z2_); return; }
+  if (key == "temperature_feedback_z1")      { doNumber(num_temperature_feedback_z1_); return; }
+  if (key == "temperature_feedback_z2")      { doNumber(num_temperature_feedback_z2_); return; }
   if (key == "minimum_compressor_on_time")   { doNumber(minimum_compressor_on_time_); return; }
 
   if (key == "thermostat_hysteresis_z1")    { doNumber(num_hysteresis_z1_);    return; }
@@ -436,9 +466,8 @@ void EcodanDashboard::dispatch_set_(const std::string &key, const std::string &s
   if (key == "raw_cool_elec_consumed") { doNumber(num_raw_cool_elec_consumed_); return; }
   if (key == "raw_cool_runtime_hours") { doNumber(num_raw_cool_runtime_hours_); return; }
   if (key == "raw_cool_avg_outside_temp") { doNumber(num_raw_cool_avg_outside_temp_); return; }
+  if (key == "raw_cool_avg_room_temp") { doNumber(num_raw_cool_avg_room_temp_); return; }
 
-  if (key == "predictive_short_cycle_high_delta_time_window")    { doNumber(pred_sc_time_);    return; }
-  if (key == "predictive_short_cycle_high_delta_threshold")    { doNumber(pred_sc_delta_);    return; }
 
   if (key == "dhw_setpoint" && dhw_climate_ != nullptr) {
     auto call = dhw_climate_->make_call();
@@ -449,7 +478,7 @@ void EcodanDashboard::dispatch_set_(const std::string &key, const std::string &s
   }
 
   auto doClimate = [&](climate::Climate *c, const char *name) {
-    if (!c) { ESP_LOGW(TAG, "%s climate not configured", name); return; }
+    if (!c) { ESP_LOGW(TAG, "%s climate not configured: key=%s", name, key.c_str()); return; }
     auto call = c->make_call();
     call.set_target_temperature(fval);
     call.perform();
@@ -466,15 +495,15 @@ void EcodanDashboard::dispatch_set_(const std::string &key, const std::string &s
   
   if (key == "virtual_climate_z1_mode" || key == "virtual_climate_z2_mode") {
     climate::Climate *c = (key == "virtual_climate_z1_mode") ? virtual_climate_z1_ : virtual_climate_z2_;
-    if (c && is_string) {
-      auto call = c->make_call();
-      if (sval == "heat") call.set_mode(climate::CLIMATE_MODE_HEAT);
-      else if (sval == "cool") call.set_mode(climate::CLIMATE_MODE_COOL);
-      else if (sval == "auto") call.set_mode(climate::CLIMATE_MODE_AUTO);
-      else call.set_mode(climate::CLIMATE_MODE_OFF);
-      call.perform();
-      ESP_LOGI(TAG, "%s set to %s", key.c_str(), sval.c_str());
-    }
+    if (!c) { ESP_LOGW(TAG, "Climate not configured: key=%s", key.c_str()); return; }
+    if (!is_string) { ESP_LOGW(TAG, "Expected string value for key=%s", key.c_str()); return; }
+    auto call = c->make_call();
+    if (sval == "heat") call.set_mode(climate::CLIMATE_MODE_HEAT);
+    else if (sval == "cool") call.set_mode(climate::CLIMATE_MODE_COOL);
+    else if (sval == "auto") call.set_mode(climate::CLIMATE_MODE_AUTO);
+    else call.set_mode(climate::CLIMATE_MODE_OFF);
+    call.perform();
+    ESP_LOGI(TAG, "%s set to %s", key.c_str(), sval.c_str());
     return;
   }
 
@@ -491,6 +520,8 @@ void EcodanDashboard::dispatch_set_(const std::string &key, const std::string &s
 
   if (is_string) {
      ESP_LOGW(TAG, "Unknown string key: %s", key.c_str());
+  } else {
+     ESP_LOGW(TAG, "Unknown key: %s (value=%.4f)", key.c_str(), fval);
   }
 }
 
@@ -582,7 +613,10 @@ void EcodanDashboard::update_snapshot_() {
   current_snapshot_.dhw_cop = get_f(dhw_cop_);
   current_snapshot_.solver_dhw_mode = get_sel(solver_dhw_mode_);
   current_snapshot_.sel_lockout_duration = get_sel(lockout_duration_);
+  current_snapshot_.sel_lockout_strategy = get_sel(lockout_strategy_);
   current_snapshot_.sw_power_mode = get_sw(sw_power_mode_);
+  current_snapshot_.sw_service_codes_enabled = get_sw(sw_service_codes_enabled_);
+  current_snapshot_.sw_holiday_mode = get_sw(sw_holiday_mode_);
 
   current_snapshot_.heating_consumed = get_f(heating_consumed_);
   current_snapshot_.heating_produced = get_f(heating_produced_);
@@ -602,14 +636,14 @@ void EcodanDashboard::update_snapshot_() {
   get_n(num_min_flow_temp_z2_, current_snapshot_.num_min_flow_temp_z2);
   get_n(num_hysteresis_z1_, current_snapshot_.num_hysteresis_z1);
   get_n(num_hysteresis_z2_, current_snapshot_.num_hysteresis_z2);
-  get_n(pred_sc_time_, current_snapshot_.pred_sc_time);
-  get_n(pred_sc_delta_, current_snapshot_.pred_sc_delta);
   get_n(minimum_compressor_on_time_, current_snapshot_.num_min_compressor_on_time);
 
   // cooling settings
   get_n(num_cooling_smart_start_z1_, current_snapshot_.num_cooling_smart_start_z1);
   get_n(num_min_cooling_flow_z1_, current_snapshot_.num_min_cooling_flow_z1);
   get_n(num_min_cooling_flow_z2_, current_snapshot_.num_min_cooling_flow_z2);
+  get_n(num_temperature_feedback_z1_, current_snapshot_.num_temperature_feedback_z1);
+  get_n(num_temperature_feedback_z2_, current_snapshot_.num_temperature_feedback_z2);
 
   // solver data
   get_n(num_raw_heat_produced_, current_snapshot_.num_raw_heat_produced);
@@ -625,6 +659,7 @@ void EcodanDashboard::update_snapshot_() {
   get_n(num_raw_cool_elec_consumed_, current_snapshot_.num_raw_cool_elec_consumed);
   get_n(num_raw_cool_runtime_hours_, current_snapshot_.num_raw_cool_runtime_hours);
   get_n(num_raw_cool_avg_outside_temp_, current_snapshot_.num_raw_cool_avg_outside_temp);
+  get_n(num_raw_cool_avg_room_temp_, current_snapshot_.num_raw_cool_avg_room_temp);
 
   get_n(num_battery_soc_kwh_, current_snapshot_.num_battery_soc_kwh);
   get_n(num_battery_max_discharge_kw_, current_snapshot_.num_battery_max_discharge_kw);
@@ -674,7 +709,7 @@ void EcodanDashboard::update_snapshot_() {
   // Local IP via esp_netif
   {
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-    if (!netif) netif = esp_netif_next_unsafe(nullptr);  // fallback: first available
+    // REMOVED: esp_netif_next_unsafe to prevent TLSF heap corruption during reconnects
     esp_netif_ip_info_t ip_info{};
     if (netif && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK && ip_info.ip.addr != 0) {
       snprintf(current_snapshot_.local_ip, sizeof(current_snapshot_.local_ip),
@@ -688,7 +723,15 @@ void EcodanDashboard::update_snapshot_() {
 }
 
 void EcodanDashboard::handle_state_(AsyncWebServerRequest *request) {
-  DashboardSnapshot snap;
+  // Move ~800-byte structure to the heap to protect the task stack
+  auto snap_ptr = std::unique_ptr<DashboardSnapshot>(new DashboardSnapshot());
+  if (!snap_ptr) {
+    httpd_req_t *req_err = *request;
+    httpd_resp_set_status(req_err, "500 Internal Server Error");
+    httpd_resp_send(req_err, "Out of Memory", HTTPD_RESP_USE_STRLEN);
+    return;
+  }
+  DashboardSnapshot &snap = *snap_ptr;
 
   if (snapshot_mutex_ != NULL && xSemaphoreTake(snapshot_mutex_, pdMS_TO_TICKS(500)) == pdTRUE) {
     snap = current_snapshot_;
@@ -710,13 +753,10 @@ void EcodanDashboard::handle_state_(AsyncWebServerRequest *request) {
   httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
   httpd_resp_set_hdr(req, "Connection", "close");
 
-  // Shared 2KB heap buffer — flushed per logical block to stay well within limits.
-  // Each block is at most ~600 bytes so there is comfortable headroom.
   constexpr size_t BUF_SIZE = 2048;
   std::vector<char> buf(BUF_SIZE);
   int off = 0;
 
-  // Send current buffer contents and reset offset. Returns false on TCP error.
   auto flush = [&]() -> bool {
     if (off <= 0) return true;
     bool ok = (httpd_resp_send_chunk(req, buf.data(), off) == ESP_OK);
@@ -724,31 +764,46 @@ void EcodanDashboard::handle_state_(AsyncWebServerRequest *request) {
     return ok;
   };
 
-  // Append helpers — write into buf[], flush automatically when >75% full.
+  auto space_left = [&]() -> size_t {
+    return (off < (int)BUF_SIZE) ? (BUF_SIZE - (size_t)off) : 0;
+  };
+
+  // Safe snprintf accumulation logic to prevent offset runaway
+  auto safe_add_offset = [&](int written) {
+      if (written > 0) {
+          off += (written < (int)space_left()) ? written : (int)space_left();
+      }
+      if (off > (int)(BUF_SIZE * 3 / 4)) flush();
+  };
+
   auto p_f = [&](const char* k, float v) {
-    if (!std::isnan(v)) off += snprintf(buf.data() + off, BUF_SIZE - off, "\"%s\":%.2f,", k, v);
-    else                off += snprintf(buf.data() + off, BUF_SIZE - off, "\"%s\":null,", k);
-    if (off > (int)(BUF_SIZE * 3 / 4)) flush();
+    int w;
+    if (!std::isnan(v)) w = snprintf(buf.data() + off, space_left(), "\"%s\":%.2f,", k, v);
+    else                w = snprintf(buf.data() + off, space_left(), "\"%s\":null,", k);
+    safe_add_offset(w);
   };
   auto p_b = [&](const char* k, bool v) {
-    off += snprintf(buf.data() + off, BUF_SIZE - off, "\"%s\":%s,", k, v ? "true" : "false");
-    if (off > (int)(BUF_SIZE * 3 / 4)) flush();
+    int w = snprintf(buf.data() + off, space_left(), "\"%s\":%s,", k, v ? "true" : "false");
+    safe_add_offset(w);
   };
   auto p_n = [&](const char* k, float v) {
-    if (!std::isnan(v)) off += snprintf(buf.data() + off, BUF_SIZE - off, "\"%s\":%.4g,", k, v);
-    else                off += snprintf(buf.data() + off, BUF_SIZE - off, "\"%s\":null,", k);
-    if (off > (int)(BUF_SIZE * 3 / 4)) flush();
+    int w;
+    if (!std::isnan(v)) w = snprintf(buf.data() + off, space_left(), "\"%s\":%.4g,", k, v);
+    else                w = snprintf(buf.data() + off, space_left(), "\"%s\":null,", k);
+    safe_add_offset(w);
   };
   auto p_lim = [&](const char* k, const DashboardSnapshot::NumData& d) {
-    if (!std::isnan(d.min)) off += snprintf(buf.data() + off, BUF_SIZE - off,
+    int w;
+    if (!std::isnan(d.min)) w = snprintf(buf.data() + off, space_left(),
                                 "\"%s\":{\"min\":%.4g,\"max\":%.4g,\"step\":%.4g},", k, d.min, d.max, d.step);
-    else                    off += snprintf(buf.data() + off, BUF_SIZE - off, "\"%s\":null,", k);
-    if (off > (int)(BUF_SIZE * 3 / 4)) flush();
+    else                    w = snprintf(buf.data() + off, space_left(), "\"%s\":null,", k);
+    safe_add_offset(w);
   };
   auto p_sel = [&](const char* k, int v) {
-    if (v >= 0) off += snprintf(buf.data() + off, BUF_SIZE - off, "\"%s\":\"%d\",", k, v);
-    else        off += snprintf(buf.data() + off, BUF_SIZE - off, "\"%s\":null,", k);
-    if (off > (int)(BUF_SIZE * 3 / 4)) flush();
+    int w;
+    if (v >= 0) w = snprintf(buf.data() + off, space_left(), "\"%s\":\"%d\",", k, v);
+    else        w = snprintf(buf.data() + off, space_left(), "\"%s\":null,", k);
+    safe_add_offset(w);
   };
   auto p_act = [&](const char* k, int a) {
     const char* s = "idle";
@@ -757,25 +812,24 @@ void EcodanDashboard::handle_state_(AsyncWebServerRequest *request) {
     else if (a == climate::CLIMATE_ACTION_COOLING)    s = "cooling";
     else if (a == climate::CLIMATE_ACTION_HEATING)    s = "heating";
     else if (a == climate::CLIMATE_ACTION_DRYING)     s = "drying";
-    off += snprintf(buf.data() + off, BUF_SIZE - off, "\"%s\":\"%s\",", k, s);
-    if (off > (int)(BUF_SIZE * 3 / 4)) flush();
+    int w = snprintf(buf.data() + off, space_left(), "\"%s\":\"%s\",", k, s);
+    safe_add_offset(w);
   };
   auto p_mod = [&](const char* k, int m) {
     const char* s = "off";
     if      (m == climate::CLIMATE_MODE_HEAT) s = "heat";
     else if (m == climate::CLIMATE_MODE_COOL) s = "cool";
     else if (m == climate::CLIMATE_MODE_AUTO) s = "auto";
-    off += snprintf(buf.data() + off, BUF_SIZE - off, "\"%s\":\"%s\",", k, s);
-    if (off > (int)(BUF_SIZE * 3 / 4)) flush();
+    int w = snprintf(buf.data() + off, space_left(), "\"%s\":\"%s\",", k, s);
+    safe_add_offset(w);
   };
 
-  // --- Opening brace + ui flags ---
-  off += snprintf(buf.data() + off, BUF_SIZE - off,
+  int w_start = snprintf(buf.data() + off, space_left(),
     "{\"ui_use_room_z1\":%s,\"ui_use_room_z2\":%s,",
     snap.ui_use_room_z1 ? "true" : "false",
     snap.ui_use_room_z2 ? "true" : "false");
+  safe_add_offset(w_start);
 
-  // --- HP sensor floats ---
   p_f("hp_feed_temp",                  snap.hp_feed_temp);
   p_f("hp_return_temp",                snap.hp_return_temp);
   p_f("outside_temp",                  snap.outside_temp);
@@ -791,7 +845,6 @@ void EcodanDashboard::handle_state_(AsyncWebServerRequest *request) {
   p_f("wifi_signal_db",                snap.wifi_signal_db);
   if (!flush()) { httpd_resp_send_chunk(req, nullptr, 0); return; }
 
-  // --- DHW ---
   p_f("dhw_temp",              snap.dhw_temp);
   p_f("dhw_flow_temp_target",  snap.dhw_flow_temp_target);
   p_f("dhw_flow_temp_drop",    snap.dhw_flow_temp_drop);
@@ -799,7 +852,6 @@ void EcodanDashboard::handle_state_(AsyncWebServerRequest *request) {
   p_f("dhw_delivered",         snap.dhw_delivered);
   p_f("dhw_cop",               snap.dhw_cop);
 
-  // --- Heating / cooling ---
   p_f("heating_consumed",  snap.heating_consumed);
   p_f("heating_produced",  snap.heating_produced);
   p_f("heating_cop",       snap.heating_cop);
@@ -810,7 +862,6 @@ void EcodanDashboard::handle_state_(AsyncWebServerRequest *request) {
   p_f("z2_flow_temp_target", snap.z2_flow_temp_target);
   if (!flush()) { httpd_resp_send_chunk(req, nullptr, 0); return; }
 
-  // --- Number settings ---
   p_n("auto_adaptive_setpoint_bias",   snap.num_aa_setpoint_bias.val);
   p_lim("aa_bias_lim",                 snap.num_aa_setpoint_bias);
   p_n("maximum_heating_flow_temp",     snap.num_max_flow_temp.val);
@@ -825,15 +876,10 @@ void EcodanDashboard::handle_state_(AsyncWebServerRequest *request) {
   p_lim("hysteresis_z1_lim",           snap.num_hysteresis_z1);
   p_n("thermostat_hysteresis_z2",      snap.num_hysteresis_z2.val);
   p_lim("hysteresis_z2_lim",           snap.num_hysteresis_z2);
-  p_n("pred_sc_time",                  snap.pred_sc_time.val);
-  p_lim("pred_sc_time_lim",            snap.pred_sc_time);
-  p_n("pred_sc_delta",                 snap.pred_sc_delta.val);
-  p_lim("pred_sc_delta_lim",           snap.pred_sc_delta);
   p_n("min_compressor_on_time",        snap.num_min_compressor_on_time.val);
   p_lim("min_compressor_on_time_lim",  snap.num_min_compressor_on_time);
   if (!flush()) { httpd_resp_send_chunk(req, nullptr, 0); return; }
 
-  // --- Climate zones ---
   p_n("z1_current_temp", snap.virt_z1.curr);  p_n("z1_setpoint", snap.virt_z1.tar);
   p_act("z1_action", snap.virt_z1.action);    p_mod("z1_mode", snap.virt_z1.mode);
   p_n("z2_current_temp", snap.virt_z2.curr);  p_n("z2_setpoint", snap.virt_z2.tar);
@@ -846,7 +892,6 @@ void EcodanDashboard::handle_state_(AsyncWebServerRequest *request) {
   p_n("flow_z2_current", snap.flow_z2.curr);  p_n("flow_z2_setpoint", snap.flow_z2.tar);
   if (!flush()) { httpd_resp_send_chunk(req, nullptr, 0); return; }
 
-  // --- Binary / switch status ---
   p_b("status_compressor",           snap.status_compressor);
   p_b("status_booster",              snap.status_booster);
   p_b("status_defrost",              snap.status_defrost);
@@ -862,25 +907,29 @@ void EcodanDashboard::handle_state_(AsyncWebServerRequest *request) {
   p_b("force_dhw",                   snap.sw_force_dhw);
   p_b("sw_regular_dhw",              snap.sw_regular_dhw);
   p_b("power_mode", snap.sw_power_mode);
+  p_b("service_codes_enabled", snap.sw_service_codes_enabled);
+  p_b("holiday_mode",          snap.sw_holiday_mode);
 
-  // --- Cooling settings ---
   p_n("cooling_smart_start_z1",  snap.num_cooling_smart_start_z1.val);
   p_lim("cool_smart_z1_lim",     snap.num_cooling_smart_start_z1);
   p_n("minimum_cooling_flow_z1", snap.num_min_cooling_flow_z1.val);
   p_lim("min_cool_flow_z1_lim",  snap.num_min_cooling_flow_z1);
   p_n("minimum_cooling_flow_z2", snap.num_min_cooling_flow_z2.val);
   p_lim("min_cool_flow_z2_lim",  snap.num_min_cooling_flow_z2);
+  p_n("temperature_feedback_z1", snap.num_temperature_feedback_z1.val);
+  p_lim("temp_feedback_z1_lim",  snap.num_temperature_feedback_z1);
+  p_n("temperature_feedback_z2", snap.num_temperature_feedback_z2.val);
+  p_lim("temp_feedback_z2_lim",  snap.num_temperature_feedback_z2);
 
   if (!flush()) { httpd_resp_send_chunk(req, nullptr, 0); return; }
 
-  // --- Solver ---
   p_b("use_dynamic_cost_solver", snap.sw_use_solver);
   p_b("show_solver_tab",         snap.sw_show_solver_tab);
   p_b("solver_connected",        snap.bin_solver_connected);
   p_sel("solver_dhw_mode", snap.solver_dhw_mode);
   p_sel("lockout_duration", snap.sel_lockout_duration);
+  p_sel("lockout_strategy", snap.sel_lockout_strategy);
 
-  // --- Server control ---
   p_b("server_control_enabled",          snap.sw_server_control);
   p_b("server_control_prohibit_dhw",     snap.sw_sc_prohibit_dhw);
   p_b("server_control_prohibit_z1_heating", snap.sw_sc_prohibit_z1_heating);
@@ -888,7 +937,6 @@ void EcodanDashboard::handle_state_(AsyncWebServerRequest *request) {
   p_b("server_control_prohibit_z2_heating", snap.sw_sc_prohibit_z2_heating);
   p_b("server_control_prohibit_z2_cooling", snap.sw_sc_prohibit_z2_cooling);
 
-  // --- Raw physics EMA numbers ---
   p_n("raw_heat_produced",      snap.num_raw_heat_produced.val);
   p_lim("raw_heat_produced_lim",snap.num_raw_heat_produced);
   p_n("raw_elec_consumed",      snap.num_raw_elec_consumed.val);
@@ -919,29 +967,45 @@ void EcodanDashboard::handle_state_(AsyncWebServerRequest *request) {
   p_lim("raw_cool_runtime_hours_lim",snap.num_raw_cool_runtime_hours);
   p_n("raw_cool_avg_outside_temp",   snap.num_raw_cool_avg_outside_temp.val);
   p_lim("raw_cool_avg_outside_temp_lim", snap.num_raw_cool_avg_outside_temp);
+  p_n("raw_cool_avg_room_temp",      snap.num_raw_cool_avg_room_temp.val);
+  p_lim("raw_cool_avg_room_temp_lim", snap.num_raw_cool_avg_room_temp);
   
   if (!flush()) { httpd_resp_send_chunk(req, nullptr, 0); return; }
 
-  // --- String fields (solver IP, version) — escape inline into buf ---
-  off += snprintf(buf.data() + off, BUF_SIZE - off, "\"solver_ip_address\":\"");
-  for (char *c = snap.txt_solver_ip; *c != '\0'; ++c) {
-    if      (*c == '"')  { buf[off++] = '\\'; buf[off++] = '"'; }
-    else if (*c == '\\') { buf[off++] = '\\'; buf[off++] = '\\'; }
-    else                 { buf[off++] = *c; }
-  }
-  off += snprintf(buf.data() + off, BUF_SIZE - off, "\",\"latest_version\":\"");
-  for (char *c = snap.version; *c != '\0'; ++c) {
-    if      (*c == '"')  { buf[off++] = '\\'; buf[off++] = '"'; }
-    else if (*c == '\\') { buf[off++] = '\\'; buf[off++] = '\\'; }
-    else                 { buf[off++] = *c; }
-  }
-  off += snprintf(buf.data() + off, BUF_SIZE - off, "\",");
+  // Safe string appending (prevents manual array out-of-bounds writes)
+  auto append_safe_char = [&](char c) {
+      if (off >= (int)BUF_SIZE - 1) flush();
+      buf[off++] = c;
+  };
 
-  // --- operation_mode + selects + closing ---
-  if (!std::isnan(snap.operation_mode))
-    off += snprintf(buf.data() + off, BUF_SIZE - off, "\"operation_mode\":%d,", (int)snap.operation_mode);
-  else
-    off += snprintf(buf.data() + off, BUF_SIZE - off, "\"operation_mode\":null,");
+  int w1 = snprintf(buf.data() + off, space_left(), "\"solver_ip_address\":\"");
+  safe_add_offset(w1);
+  for (int i = 0; i < 31 && snap.txt_solver_ip[i] != '\0'; ++i) {
+    char c = snap.txt_solver_ip[i];
+    if      (c == '"')  { append_safe_char('\\'); append_safe_char('"'); }
+    else if (c == '\\') { append_safe_char('\\'); append_safe_char('\\'); }
+    else                { append_safe_char(c); }
+  }
+  
+  int w2 = snprintf(buf.data() + off, space_left(), "\",\"latest_version\":\"");
+  safe_add_offset(w2);
+  for (int i = 0; i < 31 && snap.version[i] != '\0'; ++i) {
+    char c = snap.version[i];
+    if      (c == '"')  { append_safe_char('\\'); append_safe_char('"'); }
+    else if (c == '\\') { append_safe_char('\\'); append_safe_char('\\'); }
+    else                { append_safe_char(c); }
+  }
+  
+  int w3 = snprintf(buf.data() + off, space_left(), "\",");
+  safe_add_offset(w3);
+
+  if (!std::isnan(snap.operation_mode)) {
+    int w4 = snprintf(buf.data() + off, space_left(), "\"operation_mode\":%d,", (int)snap.operation_mode);
+    safe_add_offset(w4);
+  } else {
+    int w5 = snprintf(buf.data() + off, space_left(), "\"operation_mode\":null,");
+    safe_add_offset(w5);
+  }
 
   p_sel("heating_system_type",   snap.sel_heating_system_type);
   p_sel("room_temp_source_z1",   snap.sel_room_temp_source_z1);
@@ -951,7 +1015,9 @@ void EcodanDashboard::handle_state_(AsyncWebServerRequest *request) {
   p_sel("temp_sensor_source_z1", snap.sel_temp_source_z1);
   p_sel("temp_sensor_source_z2", snap.sel_temp_source_z2);
 
-  off += snprintf(buf.data() + off, BUF_SIZE - off, "\"local_ip\":\"%s\",\"_uptime_ms\":%u}", snap.local_ip, millis());
+  int w6 = snprintf(buf.data() + off, space_left(), "\"local_ip\":\"%s\",\"_uptime_ms\":%lu}", snap.local_ip, (unsigned long)millis());
+  safe_add_offset(w6);
+  
   flush();
   httpd_resp_send_chunk(req, nullptr, 0);
 }
@@ -1195,7 +1261,7 @@ void EcodanDashboard::send_hourly_history_(httpd_req_t *req, uint32_t from_ts, u
                 first = false;
 
                 int len = snprintf(out_buf.get() + out_len, OUT_BUF_SIZE - out_len,
-                    "[%u,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]",
+                    "[%lu,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]",
                     hbatch[j].timestamp, hbatch[j].avg_outside,
                     hbatch[j].total_cons, hbatch[j].total_prod,
                     hbatch[j].odin_heat_loss, hbatch[j].odin_cop,
@@ -1207,7 +1273,7 @@ void EcodanDashboard::send_hourly_history_(httpd_req_t *req, uint32_t from_ts, u
                     hbatch[j].weather, hbatch[j].batt_discharge,
                     hbatch[j].op_mode, hbatch[j].sched_base,
                     hbatch[j].sched_min, hbatch[j].sched_max,
-                    hbatch[j].exp_solar_kwh);
+                    hbatch[j].exp_solar_kwh, hbatch[j].decision_reason);
                 out_len += len;
             }
             done += got;
@@ -1317,7 +1383,7 @@ void EcodanDashboard::send_minute_history_(httpd_req_t *req, uint32_t from_ts, u
         first = false;
 
         int len = snprintf(out_buf.get() + out_len, OUT_BUF_SIZE - out_len,
-            "[%u,%d,%d,%d,%d,%d,%d,%d,%d,%d,%u,%d,%d,%d,%d,%d]",
+            "[%lu,%d,%d,%d,%d,%d,%d,%d,%d,%d,%u,%d,%d,%d,%d,%d]",
             rec.timestamp, rec.hp_feed, rec.hp_return,
             rec.z1_sp, rec.z2_sp, rec.z1_curr, rec.z2_curr,
             rec.z1_flow, rec.z2_flow, rec.freq, rec.flags,
@@ -1426,6 +1492,7 @@ void EcodanDashboard::align_odin_day_(int current_day) {
                 shift_arr(this->odin_solar_, NAN);
                 shift_arr(this->odin_prices_, NAN);
                 shift_arr(this->odin_operation_mode_, NAN);
+                shift_arr(this->odin_decision_reason_, NAN);
                 
                 shift_arr(this->odin_actual_dhw_cons_, NAN);
                 shift_arr(this->odin_actual_dhw_prod_, NAN);
@@ -1506,37 +1573,18 @@ void EcodanDashboard::update_actual_data(int hour, int day, float actual_cons_kw
     float exp_cons = NAN, exp_prod = NAN, exp_room = NAN, price = NAN;
     float weather = NAN, batt_dis = NAN, op_mode = NAN;
     float s_base = NAN, s_min = NAN, s_max = NAN;
+    float dec_reason = NAN;
 
     if (target_idx >= 0 && target_idx < 72) {
-        this->odin_actual_cons_[target_idx] = actual_cons_kwh;
-        this->odin_actual_prod_[target_idx] = actual_prod_kwh;
-        this->odin_actual_dhw_cons_[target_idx] = dhw_cons;
-        this->odin_actual_dhw_prod_[target_idx] = dhw_prod;
-        this->odin_actual_room_[target_idx] = actual_room_temp;
-        this->odin_actual_standby_cons_[target_idx] = standby_cons;
+        this->odin_actual_cons_.at(target_idx) = actual_cons_kwh;
+        this->odin_actual_prod_.at(target_idx) = actual_prod_kwh;
+        this->odin_actual_dhw_cons_.at(target_idx) = dhw_cons;
+        this->odin_actual_dhw_prod_.at(target_idx) = dhw_prod;
+        this->odin_actual_room_.at(target_idx) = actual_room_temp;
+        this->odin_actual_standby_cons_.at(target_idx) = standby_cons;
 
-        if (this->odin_operation_mode_.size() == 72) {
-            float real_mode = 0.0f; // Default OFF (0) / Standby
-            if (!std::isnan(dhw_cons) && dhw_cons > 0.03f) {
-                real_mode = 1.0f; // DHW / Legionella
-            }
-            else if (!std::isnan(actual_cons_kwh) && actual_cons_kwh > 0.05f) {
-                float inst_mode = (operation_mode_ && operation_mode_->has_state()) ? operation_mode_->state : NAN;
-
-                // Modes: 1=DHW, 2=Heat, 3=Cool, 6=Legionella
-                if (inst_mode == 6.0f || inst_mode == 1.0f) {
-                    real_mode = 1.0f; // Legionella / DHW fallback
-                } else if (inst_mode == 3.0f) {
-                    real_mode = 3.0f;
-                } else {
-                    // inst_mode may have reverted to heating/standby mid-hour because
-                    // prohibit stopped cooling before the hour boundary.
-                    float planned_mode = this->odin_operation_mode_[target_idx];
-                    real_mode = (planned_mode == 3.0f) ? 3.0f : 2.0f;
-                }
-            }
-            this->odin_operation_mode_[target_idx] = real_mode;
-        }
+        // Removed dynamic overwrite of odin_operation_mode_ to preserve the original forecast.
+        // The real execution data is correctly handled via actual_cons_ / actual_dhw_cons_ / actual_standby_cons_.
 
         // Extract planned data for this specific hour
         if (this->odin_cost_.size() == 72) hour_cost = this->odin_cost_[target_idx];
@@ -1551,6 +1599,7 @@ void EcodanDashboard::update_actual_data(int hour, int day, float actual_cons_kw
         if (this->odin_sched_base_.size() == 72) s_base = this->odin_sched_base_[target_idx];
         if (this->odin_sched_min_.size() == 72) s_min = this->odin_sched_min_[target_idx];
         if (this->odin_sched_max_.size() == 72) s_max = this->odin_sched_max_[target_idx];
+        if (this->odin_decision_reason_.size() == 72) dec_reason = this->odin_decision_reason_[target_idx];
     }
 
     // --- Create and Append Hourly Record (The Odin Historical Data) ---
@@ -1596,6 +1645,9 @@ void EcodanDashboard::update_actual_data(int hour, int day, float actual_cons_kw
     hr.sched_base = pack(s_base, 100.0f);
     hr.sched_min = pack(s_min, 100.0f);
     hr.sched_max = pack(s_max, 100.0f);
+    // Integer code (0=Idle, 1-10=reasons), not a scaled physical quantity — scale 1.0
+    // matches how send_h_segment_/the JS parser (getF(row[23], 1.0)) read it back.
+    hr.decision_reason = pack(dec_reason, 1.0f);
 
     {
         float exp_solar_kwh = NAN;
@@ -1631,6 +1683,7 @@ void EcodanDashboard::store_odin_data(int current_hour, int current_day,
                                       const std::vector<float>& solar,
                                       const std::vector<float>& prices,
                                       const std::vector<float>& op_mode,
+                                      const std::vector<float>& decision_reason,
                                       const LastRunStats& run_stats) {
     if (current_hour < 0) return;
 
@@ -1658,19 +1711,26 @@ void EcodanDashboard::store_odin_data(int current_hour, int current_day,
         if (i < (int)sched_base.size() && !std::isnan(sched_base[i]))  this->odin_sched_base_[target_idx] = sched_base[i];
         if (i < (int)sched_min.size()  && !std::isnan(sched_min[i]))   this->odin_sched_min_[target_idx]  = sched_min[i];
         if (i < (int)sched_max.size()  && !std::isnan(sched_max[i]))   this->odin_sched_max_[target_idx]  = sched_max[i];
-        if (i < (int)weather.size()    && !std::isnan(weather[i]))     this->odin_weather_[target_idx]    = weather[i];
-        if (i < (int)solar.size()      && !std::isnan(solar[i]))       this->odin_solar_[target_idx]      = solar[i];
-        if (i < (int)prices.size()     && !std::isnan(prices[i]))      this->odin_prices_[target_idx]     = prices[i];
+        
 
-        // Calculated data (only overwrite future hours or empty slots to protect "past" history)
+        // Calculated data (only overwrite future hours or empty slots to protect "past" history).
+        // This covers everything shown on the solver charts: consumption, production, cost,
+        // electricity prices and the weather forecast — once an hour has passed, the plan for
+        // that hour is frozen and a new solver run may no longer touch it.
         bool is_empty_slot = std::isnan(this->odin_production_[target_idx]);
 
         if (i > current_hour || (i == current_hour && is_empty_slot)) {
             if (i < (int)energy.size()     && !std::isnan(energy[i]))      this->odin_energy_[target_idx]            = energy[i];
             if (i < (int)production.size() && !std::isnan(production[i]))  this->odin_production_[target_idx]        = production[i];
             if (i < (int)cost.size()       && !std::isnan(cost[i]))        this->odin_cost_[target_idx]              = cost[i];
+            if (i < (int)weather.size()    && !std::isnan(weather[i]))     this->odin_weather_[target_idx]           = weather[i];
+            if (i < (int)prices.size()     && !std::isnan(prices[i]))      this->odin_prices_[target_idx]            = prices[i];
+            if (i < (int)solar.size()      && !std::isnan(solar[i]))       this->odin_solar_[target_idx]             = solar[i];
             if (i < (int)battery_discharge.size() && !std::isnan(battery_discharge[i])) this->odin_battery_discharge_[target_idx] = battery_discharge[i];
             if (i < (int)op_mode.size()    && !std::isnan(op_mode[i]))     this->odin_operation_mode_[target_idx]    = op_mode[i];
+            // Kept in lockstep with the hour it explains: frozen once the hour has
+            // passed, exactly like the plan values above.
+            if (i < (int)decision_reason.size() && !std::isnan(decision_reason[i])) this->odin_decision_reason_[target_idx] = decision_reason[i];
             if (i < (int)exp_temp.size()   && !std::isnan(exp_temp[i]))    this->odin_expected_temp_[target_idx]     = exp_temp[i];
             if (i < (int)expected_end_temp.size() && !std::isnan(expected_end_temp[i])) this->odin_expected_end_temp_[target_idx] = expected_end_temp[i];
         }
@@ -1712,8 +1772,8 @@ void EcodanDashboard::handle_odin_request_(AsyncWebServerRequest *request) {
   std::vector<char> buffer_vec(JSON_BUFFER_SIZE);
   char* json_buf = buffer_vec.data();
 
-  // Heap-allocate the snapshot array (19 × 72 floats = ~5.5 KB — too large for the task stack).
-  constexpr int ODIN_ARRAY_COUNT = 19;
+  // Heap-allocate the snapshot array (ODIN_ARRAY_COUNT × 72 floats — too large for the
+  // task stack). The count comes from the header so it can never drift from the map.
   struct OdinSnapshotData { float arrs[ODIN_ARRAY_COUNT][ODIN_HOURS]; };
   auto all_arrs_ptr = std::unique_ptr<OdinSnapshotData>(new OdinSnapshotData());
   auto& all_arrs = all_arrs_ptr->arrs;
@@ -1734,23 +1794,41 @@ void EcodanDashboard::handle_odin_request_(AsyncWebServerRequest *request) {
       }
   }
 
-  // Helper: serialise one pre-copied array into json_buf and send as a chunk.
+// Helper: serialise one pre-copied array into json_buf and send as a chunk.
   auto send_arr_chunk = [&](int k, const char* name) __attribute__((noinline)) -> bool {
       if (!arr_valid[k]) return true; // skip silently; array had wrong size
 
       int offset = snprintf(json_buf, JSON_BUFFER_SIZE, "\"%s\":[", name);
+      // Protect against snprintf truncation returning a value larger than the buffer
+      if (offset > JSON_BUFFER_SIZE) offset = JSON_BUFFER_SIZE;
+
       for (size_t i = 0; i < ODIN_HOURS; i++) {
-          int space_left = (JSON_BUFFER_SIZE > offset) ? (JSON_BUFFER_SIZE - offset) : 0;
+          int space_left = JSON_BUFFER_SIZE - offset;
+          if (space_left <= 0) break; // Buffer is full, stop processing to prevent memory corruption
+
+          int written;
           if (std::isnan(all_arrs[k][i])) {
-              offset += snprintf(json_buf + offset, space_left, "null");
+              written = snprintf(json_buf + offset, space_left, "null");
           } else {
-              offset += snprintf(json_buf + offset, space_left, "%.2f", all_arrs[k][i]);
+              written = snprintf(json_buf + offset, space_left, "%.2f", all_arrs[k][i]);
           }
-          space_left = (JSON_BUFFER_SIZE > offset) ? (JSON_BUFFER_SIZE - offset) : 0;
-          if (i < ODIN_HOURS - 1) offset += snprintf(json_buf + offset, space_left, ",");
+          
+          // Safely advance the offset only by what actually fit in the buffer
+          offset += (written < space_left) ? written : space_left;
+          space_left = JSON_BUFFER_SIZE - offset;
+
+          if (i < ODIN_HOURS - 1 && space_left > 0) {
+              written = snprintf(json_buf + offset, space_left, ",");
+              offset += (written < space_left) ? written : space_left;
+          }
       }
-      int space_left = (JSON_BUFFER_SIZE > offset) ? (JSON_BUFFER_SIZE - offset) : 0;
-      offset += snprintf(json_buf + offset, space_left, "],"); // always comma; stats block follows
+      
+      int space_left = JSON_BUFFER_SIZE - offset;
+      if (space_left > 0) {
+          int written = snprintf(json_buf + offset, space_left, "],");
+          offset += (written < space_left) ? written : space_left; // always comma; stats block follows
+      }
+      
       if (offset >= JSON_BUFFER_SIZE) offset = JSON_BUFFER_SIZE - 1;
       return (httpd_resp_send_chunk(req, json_buf, offset) == ESP_OK);
   };
@@ -1769,7 +1847,7 @@ void EcodanDashboard::handle_odin_request_(AsyncWebServerRequest *request) {
       int offset = snprintf(json_buf, JSON_BUFFER_SIZE,
           "\"current_hour\":%d,"
           "\"today_start_index\":24,"
-          "\"last_run\":{\"execution_ms\":%u,\"evaluated_nodes\":%u,\"bidding_zone\":\"%s\",\"heat_loss\":%.3f,\"base_cop\":%.2f,"
+          "\"last_run\":{\"execution_ms\":%lu,\"evaluated_nodes\":%lu,\"bidding_zone\":\"%s\",\"heat_loss\":%.3f,\"base_cop\":%.2f,"
           "\"thermal_mass\":%.1f,\"exp_consumption\":%.2f,\"exp_production\":%.2f,"
           "\"exp_solar\":%.2f,\"exp_solar_total\":%.2f,\"used_solar_kwp\":%.2f,"
           "\"used_solar_correction\":%.3f,\"used_battery_soc_kwh\":%.2f,\"total_cost\":%.4f}}",

@@ -76,6 +76,8 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional("sw_use_solver_id"):                   cv.use_id(switch.Switch),
         cv.Optional("sw_show_solver_tab_id"):              cv.use_id(switch.Switch),
         cv.Optional("sw_power_mode_id"):                   cv.use_id(switch.Switch),
+        cv.Optional("sw_service_codes_enabled_id"):        cv.use_id(switch.Switch),
+        cv.Optional("sw_holiday_mode_id"):                 cv.use_id(switch.Switch),
 
         # Server control
         cv.Optional("sw_server_control_id"):               cv.use_id(switch.Switch),
@@ -116,11 +118,14 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional("num_cooling_smart_start_z1_id"):      cv.use_id(number.Number),
         cv.Optional("num_min_cooling_flow_z1_id"):         cv.use_id(number.Number),
         cv.Optional("num_min_cooling_flow_z2_id"):         cv.use_id(number.Number),
+        cv.Optional("num_temperature_feedback_z1_id"):     cv.use_id(number.Number),
+        cv.Optional("num_temperature_feedback_z2_id"):     cv.use_id(number.Number),
 
         cv.Optional("num_raw_cool_produced_id"):           cv.use_id(number.Number),
         cv.Optional("num_raw_cool_elec_consumed_id"):      cv.use_id(number.Number),
         cv.Optional("num_raw_cool_runtime_hours_id"):      cv.use_id(number.Number),
         cv.Optional("num_raw_cool_avg_outside_temp_id"):   cv.use_id(number.Number),
+        cv.Optional("num_raw_cool_avg_room_temp_id"):      cv.use_id(number.Number),
 
         cv.Optional("dhw_climate_id"):                     cv.use_id(climate.Climate),
         cv.Optional("virtual_climate_z1_id"):              cv.use_id(climate.Climate),
@@ -131,8 +136,6 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional("flow_climate_z2_id"):                 cv.use_id(climate.Climate),
 
         cv.Optional("predictive_short_cycle_control_enabled_id"):      cv.use_id(switch.Switch),
-        cv.Optional("predictive_short_cycle_high_delta_time_window_id"): cv.use_id(number.Number),
-        cv.Optional("predictive_short_cycle_high_delta_threshold_id"):   cv.use_id(number.Number),
 
         cv.Optional("ui_use_room_z1_id"): cv.use_id(globals.GlobalsComponent),
         cv.Optional("ui_use_room_z2_id"): cv.use_id(globals.GlobalsComponent),
@@ -140,6 +143,7 @@ CONFIG_SCHEMA = cv.Schema(
         # Short Cycle Prevention
         cv.Optional("minimum_compressor_on_time_id"): cv.use_id(number.Number),
         cv.Optional("lockout_duration_id"): cv.use_id(select.Select),
+        cv.Optional("lockout_strategy_id"): cv.use_id(select.Select),
         cv.Optional("status_short_cycle_lockout_id"): cv.use_id(binary_sensor.BinarySensor),
         cv.Optional("short_cycle_mitigation_button_id"): cv.use_id(button.Button),
 
@@ -234,8 +238,6 @@ async def to_code(config):
         ("flow_climate_z1_id",                "set_flow_climate_z1"),
         ("flow_climate_z2_id",                "set_flow_climate_z2"),
         ("predictive_short_cycle_control_enabled_id",    "set_pred_sc_switch"),
-        ("predictive_short_cycle_high_delta_time_window_id", "set_pred_sc_time"),
-        ("predictive_short_cycle_high_delta_threshold_id",   "set_pred_sc_delta"),
         ("ui_use_room_z1_id", "set_ui_use_room_z1"),
         ("ui_use_room_z2_id", "set_ui_use_room_z2"),
         ("sw_use_solver_id",                  "set_sw_use_solver"),
@@ -253,6 +255,7 @@ async def to_code(config):
         ("num_raw_cool_elec_consumed_id",     "set_num_raw_cool_elec_consumed"),
         ("num_raw_cool_runtime_hours_id",     "set_num_raw_cool_runtime_hours"),
         ("num_raw_cool_avg_outside_temp_id",  "set_num_raw_cool_avg_outside_temp"),
+        ("num_raw_cool_avg_room_temp_id",     "set_num_raw_cool_avg_room_temp"),
         ("solver_kwh_meter_feedback_source_id", "set_solver_kwh_meter_feedback_source"),
         ("solver_dhw_mode_id",                "set_solver_dhw_mode"),
         ("solver_kwh_meter_feedback_id",      "set_solver_kwh_meter_feedback"),
@@ -261,7 +264,11 @@ async def to_code(config):
         ("num_cooling_smart_start_z1_id",     "set_num_cooling_smart_start_z1"),
         ("num_min_cooling_flow_z1_id",        "set_num_min_cooling_flow_z1"),
         ("num_min_cooling_flow_z2_id",        "set_num_min_cooling_flow_z2"),
+        ("num_temperature_feedback_z1_id",    "set_num_temperature_feedback_z1"),
+        ("num_temperature_feedback_z2_id",    "set_num_temperature_feedback_z2"),
         ("sw_power_mode_id",                  "set_sw_power_mode"),
+        ("sw_service_codes_enabled_id",     "set_sw_service_codes_enabled"),
+        ("sw_holiday_mode_id",              "set_sw_holiday_mode"),
         ("sw_show_solver_tab_id",             "set_sw_show_solver_tab"), 
 
         # Server control
@@ -275,6 +282,7 @@ async def to_code(config):
         # Short Cycle Prevention mappings
         ("minimum_compressor_on_time_id",     "set_minimum_compressor_on_time"),
         ("lockout_duration_id",               "set_lockout_duration"),
+        ("lockout_strategy_id",               "set_lockout_strategy"),
         ("status_short_cycle_lockout_id",     "set_status_short_cycle_lockout"),
         ("short_cycle_mitigation_button_id",  "set_short_cycle_mitigation_button"),
     ]

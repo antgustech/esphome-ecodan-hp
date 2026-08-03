@@ -50,16 +50,21 @@ namespace esphome
 
         float Optimizer::clamp_flow_temp(float calculated_flow, float min_temp, float max_temp)
         {
+            // Only treat it as a real clamp (worth logging) when the overshoot exceeds
+            // float-noise at the 0.1°C control resolution; otherwise clamp silently.
+            const float CLAMP_LOG_EPS = 0.05f;
             if (calculated_flow > max_temp)
             {
-                ESP_LOGW(OPTIMIZER_TAG, "Flow limited to %.1f°C (Zone Max Limit), calculated_flow: %.1f",
-                        max_temp, calculated_flow);
+                if (calculated_flow > max_temp + CLAMP_LOG_EPS)
+                    ESP_LOGW(OPTIMIZER_TAG, "Flow limited to %.1f°C (Zone Max Limit), calculated_flow: %.1f",
+                            max_temp, calculated_flow);
                 return max_temp;
             }
             if (calculated_flow < min_temp)
             {
-                ESP_LOGW(OPTIMIZER_TAG, "Flow limited to %.1f°C (Zone Min Limit), calculated_flow: %.1f",
-                        min_temp, calculated_flow);
+                if (calculated_flow < min_temp - CLAMP_LOG_EPS)
+                    ESP_LOGW(OPTIMIZER_TAG, "Flow limited to %.1f°C (Zone Min Limit), calculated_flow: %.1f",
+                            min_temp, calculated_flow);
                 return min_temp;
             }
             return calculated_flow;
@@ -168,14 +173,31 @@ namespace esphome
             return {min_flow, max_flow};
         }
 
-        float Optimizer::enforce_step_limit(const ecodan::Status &status, float actual_flow_temp, float calculated_flow) 
+        FlowLimits Optimizer::get_cool_flow_limits(OptimizerZone zone) {
+            float min_flow = 18.0f;
+            if (zone == OptimizerZone::ZONE_2) {
+                if (this->state_.minimum_cooling_flow_temp_z2 != nullptr)
+                    min_flow = this->state_.minimum_cooling_flow_temp_z2->state;
+            } else {
+                if (this->state_.minimum_cooling_flow_temp_z1 != nullptr)
+                    min_flow = this->state_.minimum_cooling_flow_temp_z1->state;
+            }
+
+            float max_flow = 30.0f;
+            if (min_flow > max_flow)
+            {
+                max_flow = min_flow;
+            }
+
+            return {min_flow, max_flow};
+        }
+
+        float Optimizer::enforce_step_limit(const ecodan::Status &status, float actual_flow_temp, float calculated_flow, bool is_cooling_mode) 
         {
             const float MAX_FEED_STEP_CHANGE = 1.0f;
             const float MAX_FEED_STEP_ADJUSTMENT = 0.5f;
-            
-            bool is_cooling = this->is_cooling_active(status);
 
-            if (is_cooling) 
+            if (is_cooling_mode) 
             {
                 if ((calculated_flow - actual_flow_temp) > MAX_FEED_STEP_CHANGE)
                 {

@@ -133,10 +133,11 @@ substitutions:
   status_short_cycle_lockout: 'Short-Cycle: Lockout'
   minimum_compressor_on_time: 'Short-Cycle: Minimum On-Time'
   lockout_duration: 'Short-Cycle: Lockout Duration (min)'
+  lockout_strategy: 'Short-Cycle: Lockout Strategy'
+  lockout_strategy_option_server_control: 'Server Control'
+  lockout_strategy_option_flow_control: 'Flow Control'
   short_cycle_mitigation_button: 'Short-Cycle: Cancel Lockout'
   predictive_short_cycle_control_enabled: 'Short-Cycle: Predictive Prevention'
-  predictive_short_cycle_high_delta_time_window: 'Short-Cycle: High Delta Duration'
-  predictive_short_cycle_high_delta_threshold: 'Short-Cycle: High Delta Threshold'
   status_predictive_boost_active: 'Short-Cycle: Predictive Boost Active'
   # auto adaptive translations
   auto_adaptive_control_enabled: 'Auto-Adaptive: Control'
@@ -200,3 +201,4 @@ substitutions:
   num_raw_cool_elec_consumed: "Raw Cool Eletricity Consumed"
   num_raw_cool_runtime_hours: "Raw Cool Runtime"
   num_raw_cool_avg_outside_temp: "Raw Cool Avg Outside Temp"
+  num_raw_cool_avg_room_temp: "Raw Cool Avg Room Temp"

@@ -116,7 +116,8 @@ namespace esphome
                                           mode != OptimizerOperationMode::HEAT_ON);
 
                     // Fall-forward logic: if currently off or doing DHW/Legionella, 
-                    if (odin_last_executed_dhw_hour_ != -1 && (result.heatpump_off || mode == OptimizerOperationMode::DHW_ON || mode == OptimizerOperationMode::LEGIONELLA_PREVENTION)) {
+                    if (odin_last_executed_dhw_hour_ != -1
+                        && (result.heatpump_off || mode == OptimizerOperationMode::DHW_ON || mode == OptimizerOperationMode::LEGIONELLA_PREVENTION)) {
 
                         if (!std::isnan(next_prod) && next_mode != OptimizerOperationMode::UNAVAILABLE) {
                             bool next_off = (next_prod < 0.1f &&
@@ -229,8 +230,7 @@ namespace esphome
                     calculated_flow = actual_return_temp + target_delta;
                 }
 
-                // Predictive boost adjustment (fetch feed temp once; reused by buffer guard below)
-                auto &pcp_adj = (zone_i == 1) ? this->pcp_adjustment_z2_ : this->pcp_adjustment_z1_;
+                // Fetch feed temp once (reused by the buffer guard below).
                 float actual_flow_temp = this->get_feed_temp(
                     (zone_i == 0) ? OptimizerZone::ZONE_1 : OptimizerZone::ZONE_2);
 
@@ -251,26 +251,20 @@ namespace esphome
 
                 calculated_flow = this->round_nearest(calculated_flow);
 
-                if (pcp_adj > 0.0f) {
-                    if ((actual_flow_temp - calculated_flow) >= 1.0f) {
-                        calculated_flow += pcp_adj;
-                    } else {
-                        pcp_adj = 0.0f;
-                    }
-                }
-                ESP_LOGD(OPTIMIZER_TAG, "Z%d HEATING: flow=%.2f°C, return=%.2f°C (boost %.1f)", (zone_i + 1), calculated_flow, actual_return_temp, pcp_adj);
+                ESP_LOGD(OPTIMIZER_TAG, "Z%d HEATING: flow=%.2f°C, return=%.2f°C", (zone_i + 1), calculated_flow, actual_return_temp);
             }
 
+            bool cooling_mode = is_cooling_mode(status, (zone_i == 0) ? OptimizerZone::ZONE_1 : OptimizerZone::ZONE_2);
             // Clamp + step-down (order depends on post-DHW window)
             if (this->is_post_dhw_window(status)) {
                 calculated_flow = this->clamp_flow_temp(calculated_flow, zone_min, zone_max);
                 calculated_flow = this->enforce_step_limit(status,
                     this->get_feed_temp((zone_i == 0) ? OptimizerZone::ZONE_1 : OptimizerZone::ZONE_2),
-                    calculated_flow);
+                    calculated_flow, cooling_mode);
             } else {
                 calculated_flow = this->enforce_step_limit(status,
                     this->get_feed_temp((zone_i == 0) ? OptimizerZone::ZONE_1 : OptimizerZone::ZONE_2),
-                    calculated_flow);
+                    calculated_flow, cooling_mode);
                 calculated_flow = this->clamp_flow_temp(calculated_flow, zone_min, zone_max);
             }
 
@@ -321,7 +315,7 @@ namespace esphome
 
             calculated_flow = this->enforce_step_limit(status,
                     this->get_feed_temp((zone_i == 0) ? OptimizerZone::ZONE_1 : OptimizerZone::ZONE_2),
-                    calculated_flow);
+                    calculated_flow, true);
 
             // smart_start caps the flow on startup (water still warm) to avoid a slam-start.
             bool cooling_active = this->is_cooling_active(status);
@@ -622,8 +616,9 @@ namespace esphome
             float cold_factor = cf_raw * cf_raw * 1.5f;
 
             ESP_LOGD(OPTIMIZER_TAG,
-                "[*] Auto-adaptive cycle: independent_zone_temps=%d has_cooling=%d cold_factor=%.2f min_delta=%.2f max_delta=%.2f",
-                status.has_independent_zone_temps(), status.has_cooling(), cold_factor, prof.base_min_delta_t, prof.max_delta_t);
+                "[*] Auto-adaptive cycle: independent_zone_temps=%d has_cooling=%d cold_factor=%.2f min_delta=%.2f max_delta=%.2f multizone_status=%d operation=%d",
+                status.has_independent_zone_temps(), status.has_cooling(), cold_factor, prof.base_min_delta_t, prof.max_delta_t,
+                status.MultiZoneStatus, static_cast<uint8_t>(status.Operation));
 
             auto max_zones = status.has_2zones() ? 2 : 1;
 
