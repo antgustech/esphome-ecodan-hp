@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
+source "$HOME/.config/myenv.sh"
 # Config — adjust if needed
 UPSTREAM_REMOTE_URL="https://github.com/gekkekoe/esphome-ecodan-hp.git"
 PYTHON_BIN="python3"
 VENV_DIR="venv"
 YAML_FILE="ecodan-esphome.yaml"
-#ESPHOME_DEVICE_IP=""   # Using environment variable echos 'export ESPHOME_DEVICE_IP=192.168.x.x' >> ~/.bashrc
+#ESPHOME_DEVICE_IP="" #Uses environement variable 
 PIP_OPTS="--upgrade"
 
 # Helper output
