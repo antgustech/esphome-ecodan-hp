@@ -52,7 +52,7 @@ climate:
       target_temp_func: |-
         id(ecodan_instance).set_dhw_target_temperature(x);
       current_temp_func: |-
-        return id(ecodan_instance).get_status().DhwTemperature;
+        return id(ecodan_instance).get_status().get_tank_temperature();
 
 switch:
   - platform: template
@@ -69,6 +69,10 @@ switch:
     name: ${heatpump_switch_regular_dhw}
     id: heatpump_switch_regular_dhw
     optimistic: true
+    # This is a trigger, not a persistent state: never restore it ON after a
+    # reboot — the trigger script does not resume, so a restored ON would
+    # look like a stuck switch (same convention as the force DHW switch).
+    restore_mode: DISABLED
     icon: "mdi:water-boiler-auto"
     turn_on_action:
       - script.execute: trigger_dhw_script
@@ -775,6 +779,10 @@ script:
                 level: INFO
             - switch.turn_off: heatpump_switch_server_control_mode
 
+      - logger.log:
+          format: "DHW trigger complete. Turning off switch."
+          tag: "asgard"
+          level: INFO
       - switch.turn_off: heatpump_switch_regular_dhw
 
 <<: !include stats.yaml

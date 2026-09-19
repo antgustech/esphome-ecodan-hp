@@ -7,6 +7,11 @@ globals:
     restore_value: yes
     initial_value: '0'
 
+  - id: legionella_saved_dhw_setpoint
+    type: float
+    restore_value: yes
+    initial_value: '-1.0'
+
 substitutions:
   update_interval_minutes: "5min"
   asgard_prefix: "//"
@@ -34,6 +39,12 @@ esphome:
 
             state.sw_force_dhw = id(heatpump_switch_force_dhw);
             state.sw_regular_dhw = id(heatpump_switch_regular_dhw);
+
+            // Legionella DHW setpoint automation
+            state.legionella_dhw_automation_enabled = id(legionella_dhw_automation_enabled);
+            state.legionella_dhw_setpoint = id(legionella_dhw_setpoint);
+            state.dhw_climate = id(heatpump_climate_dhw);
+            state.legionella_saved_dhw_setpoint = legionella_saved_dhw_setpoint;
             ${asgard_prefix} state.solver_dhw_mode = id(solver_dhw_mode);
 
             state.operation_mode = id(operation_mode);
@@ -92,6 +103,17 @@ esphome:
             state.num_raw_delta_room_temp = id(num_raw_delta_room_temp);
             state.num_raw_hl_tm_product = id(num_raw_hl_tm_product);
             state.num_raw_solar_factor = id(num_raw_solar_factor);
+
+            // Zone-2 learning set
+            state.num_raw_heat_produced_z2 = id(num_raw_heat_produced_z2);
+            state.num_raw_elec_consumed_z2 = id(num_raw_elec_consumed_z2);
+            state.num_raw_runtime_hours_z2 = id(num_raw_runtime_hours_z2);
+            state.num_raw_avg_room_temp_z2 = id(num_raw_avg_room_temp_z2);
+            state.num_raw_delta_room_temp_z2 = id(num_raw_delta_room_temp_z2);
+            state.num_raw_cool_produced_z2 = id(num_raw_cool_produced_z2);
+            state.num_raw_cool_elec_consumed_z2 = id(num_raw_cool_elec_consumed_z2);
+            state.num_raw_cool_runtime_hours_z2 = id(num_raw_cool_runtime_hours_z2);
+            state.num_raw_cool_avg_room_temp_z2 = id(num_raw_cool_avg_room_temp_z2);
 
             // instantiate optimizer
             id(optimizer_ptr) = new esphome::optimizer::Optimizer(state);
@@ -229,6 +251,20 @@ number:
     step: 0.001
     mode: box
 
+  - platform: template
+    name: "Legionella: DHW Setpoint"
+    id: legionella_dhw_setpoint
+    internal: ${is_internal_asgard_only}
+    min_value: 50.0
+    max_value: 60.0
+    step: 0.5
+    optimistic: true
+    restore_value: true
+    initial_value: 56.0
+    unit_of_measurement: "°C"
+    icon: "mdi:thermometer-water"
+    entity_category: "config"
+
 select:
   - platform: template
     id: temperature_feedback_source_z1
@@ -338,6 +374,13 @@ switch:
     optimistic: true
     restore_mode: RESTORE_DEFAULT_OFF
     icon: "mdi:brain"
+
+  - platform: template
+    id: legionella_dhw_automation_enabled
+    name: "Legionella: DHW Setpoint Automation"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    icon: "mdi:shield-water"
 
 binary_sensor:
   - platform: template

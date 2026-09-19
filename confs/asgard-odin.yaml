@@ -105,7 +105,9 @@ script:
                       solar_factor = 0.015f; // default
                   }
 
-                  float _dhw_temp = std::isnan(id(dhw_temp).state) ? 0.0f : id(dhw_temp).state;
+                  float _dhw_bottom = id(ecodan_instance).get_status().get_lower_tank_temperature();
+                  float _dhw_top = id(ecodan_instance).get_status().get_tank_temperature();
+                  
                   float _dhw_target = std::isnan(id(dhw_flow_temp_target).state) ? 0.0f : id(dhw_flow_temp_target).state;
                   float _dhw_drop = std::isnan(id(dhw_flow_temp_drop).state) ? 0.0f : id(dhw_flow_temp_drop).state;
                   float _dhw_thresh = std::isnan(id(dhw_start_threshold).state) ? 0.0f : id(dhw_start_threshold).state;
@@ -128,15 +130,15 @@ script:
                   params["current_hour"] = _cur_hour;
                   params["current_room_temp"] = id(virtual_climate_z1).current_temperature;
                   params["hl_tm_product"] = id(num_raw_hl_tm_product).state;
-                  // Fallback value only. odin_server.cpp always computes the day-method
-                  // HL, and — if use_greybox_hl is enabled and the fit is accepted
+                  // Fallback value only. odin_server.cpp always computes the day-method HL.
                   params["passive_solar_gain_factor"] = solar_factor;
                   params["battery_soc_kwh"] = id(num_battery_soc_kwh).state;
                   params["battery_max_discharge_kw"] = id(num_battery_max_discharge_kw).state;
-                  params["dhw_temp"] = _dhw_temp;
+                  params["dhw_temp"] = _dhw_top;
                   params["dhw_target"] = _dhw_target;
                   params["dhw_drop"] = _dhw_drop;
                   params["dhw_start_threshold"] = _dhw_thresh;
+                  params["dhw_temp_bottom"] = _dhw_bottom;
                   params["min_cool_flow"] = _min_cool_flow;
                   params["current_operation_mode"] = _op_mode;
                   
@@ -153,35 +155,26 @@ script:
                   params["cool_avg_outside_temp"] = id(num_raw_cool_avg_outside_temp).state;
                   params["cool_avg_room_temp"] = id(num_raw_cool_avg_room_temp).state;
 
-                  // Extract trailing 24 hours via ArduinoJson v7 syntax
-                  JsonArray arr_room = params["hist_room_temp"].to<JsonArray>();
-                  JsonArray arr_out = params["hist_out_temp"].to<JsonArray>();
-                  JsonArray arr_solar = params["hist_solar"].to<JsonArray>();
-                  JsonArray arr_prod = params["hist_prod"].to<JsonArray>();
-                  JsonArray arr_op = params["hist_op_mode"].to<JsonArray>();
+                  // --- Zone-2 learning set: ALWAYS forwarded when available
 
-                  for (int i = 0; i < 24; i++) {
-                      int idx = _cur_hour + i;
-                      if (idx >= 0 && idx < 72) {
-                          float r = id(asgard_dashboard_id)->get_odin_value("actual_room_temp", idx);
-                          if (std::isnan(r)) arr_room.add(nullptr); else arr_room.add(r);
-                          
-                          float o = id(asgard_dashboard_id)->get_odin_value("weather", idx); 
-                          if (std::isnan(o)) arr_out.add(nullptr); else arr_out.add(o);
-                          
-                          float s = id(asgard_dashboard_id)->get_odin_value("solar", idx);
-                          if (std::isnan(s)) arr_solar.add(nullptr); else arr_solar.add(s);
-                          
-                          float p = id(asgard_dashboard_id)->get_odin_value("actual_prod", idx);
-                          if (std::isnan(p)) arr_prod.add(nullptr); else arr_prod.add(p);
-                          
-                          float op = id(asgard_dashboard_id)->get_odin_value("operation_mode", idx);
-                          if (std::isnan(op)) arr_op.add(nullptr); else arr_op.add(op);
-                      } else {
-                          arr_room.add(nullptr); arr_out.add(nullptr); arr_solar.add(nullptr); 
-                          arr_prod.add(nullptr); arr_op.add(nullptr);
-                      }
-                  }
+                  float z2_room_temp = id(virtual_climate_z1).current_temperature;
+                  ${z2_cpp_prefix} if (!std::isnan(id(virtual_climate_z2).current_temperature)) z2_room_temp = id(virtual_climate_z2).current_temperature;
+                  // for 2 zones, always enable 2-zone solve. has_independent_zone_temps is too restrictive, will be removed
+                  // params["independent_zones"] = id(ecodan_instance).get_status().has_independent_zone_temps() ? 1 : 0;
+                  ${z2_cpp_prefix} params["independent_zones"] = 1;
+                  
+                  params["current_room_temp_z2"] = z2_room_temp;
+                  params["sched_base_z2"] = ""; // no zone-2 schedule editor yet: empty = zone-1 setpoints
+                  params["heat_produced_z2"] = id(num_raw_heat_produced_z2).state;
+                  params["elec_consumed_z2"] = id(num_raw_elec_consumed_z2).state;
+                  params["runtime_hours_z2"] = id(num_raw_runtime_hours_z2).state;
+                  params["avg_room_temp_z2"] = id(num_raw_avg_room_temp_z2).state;
+                  params["delta_room_temp_z2"] = id(num_raw_delta_room_temp_z2).state;
+                  params["hl_tm_product_z2"] = id(num_raw_hl_tm_product).state; // shared house measurement (seed)
+                  params["cool_produced_z2"] = id(num_raw_cool_produced_z2).state;
+                  params["cool_elec_consumed_z2"] = id(num_raw_cool_elec_consumed_z2).state;
+                  params["cool_runtime_hours_z2"] = id(num_raw_cool_runtime_hours_z2).state;
+                  params["cool_avg_room_temp_z2"] = id(num_raw_cool_avg_room_temp_z2).state;
 
                   std::string output;
                   serializeJson(doc, output);
@@ -209,6 +202,30 @@ script:
                               JsonArray j_prc = root["prices"];
                               JsonArray j_op  = root["operation_mode"];
                               JsonArray j_rsn = root["decision_reason"];
+                              // Per-zone plans (two-zone solve). Absent on single-zone
+                              static std::vector<float> prod_z1, prod_z2;
+                              prod_z1.clear();
+                              prod_z2.clear();
+                              JsonArray j_z1 = root["zone_production_z1"];
+                              JsonArray j_z2 = root["zone_production_z2"];
+                              if (!j_z1.isNull() && !j_z2.isNull()) {
+                                for (uint8_t i = 0; i < 48; i++) {
+                                  if (i >= j_z1.size()) break;
+                                  prod_z1.push_back(j_z1[i].isNull() ? NAN : j_z1[i].as<float>());
+                                  prod_z2.push_back(j_z2[i].isNull() ? NAN : j_z2[i].as<float>());
+                                }
+                              }
+
+                              // Zone-2 expected room temps (two-zone solve). Absent on
+                              // single-zone answers — stays all-NAN, which leaves the
+                              // stored z2 line untouched (NAN slots are never overwritten).
+                              static std::vector<float> exp_t_z2(48);
+                              for (int i = 0; i < 48; i++) exp_t_z2[i] = NAN;
+                              JsonArray j_t_z2 = root["expected_begin_temp_z2"];
+                              if (!j_t_z2.isNull() && j_t_z2.size() == 48) {
+                                for (uint8_t i = 0; i < 48; i++)
+                                  exp_t_z2[i] = j_t_z2[i].isNull() ? NAN : j_t_z2[i].as<float>();
+                              }
 
                               bool has_p   = !j_p.isNull();
                               bool has_b   = !j_b.isNull();
@@ -259,10 +276,10 @@ script:
                               stats.max_output      = root["used_max_output"].is<float>() ? root["used_max_output"].as<float>() : 8.0f;
                               stats.bidding_zone    = root["bidding_zone"].is<std::string>() ? root["bidding_zone"].as<std::string>() : "NL";
 
-                              id(optimizer_ptr)->store_odin_data(cur_hr, stats.min_output, stats.max_output, prod, sol, op_mode);
+                              id(optimizer_ptr)->store_odin_data(cur_hr, stats.min_output, stats.max_output, prod, prod_z1, prod_z2, sol, op_mode);
 
                               id(asgard_dashboard_id)->store_odin_data(
-                                cur_hr, cur_day, exp_end_t, nrg, prod, exp_t, cost, batt, sb, smn, smx, wth, sol, prc, op_mode, reason, stats);
+                                cur_hr, cur_day, exp_end_t, nrg, prod, exp_t, cost, batt, sb, smn, smx, wth, sol, prc, op_mode, reason, stats, exp_t_z2);
 
                               // Mark success so retry logic knows we're done
                               id(odin_retry_count) = -1;
@@ -335,6 +352,7 @@ interval:
             static float last_d_prod = -1.0f;
             static float last_t_cons = -1.0f;
             static float last_room   = NAN;   // need to track last room temp for day transition 
+            ${z2_cpp_prefix} static float last_room_z2 = NAN;  // zone-2 baseline for day transition
 
             int cur_hr = id(optimizer_ptr)->get_current_ecodan_hour();
             float cur_h_cons = id(optimizer_ptr)->get_heating_consumed_kwh();
@@ -359,6 +377,7 @@ interval:
               last_d_prod = cur_d_prod;
               last_t_cons = std::isnan(cur_t_cons) ? 0.0f : cur_t_cons;
               last_room   = id(virtual_climate_z1).current_temperature;
+              ${z2_cpp_prefix} last_room_z2 = id(virtual_climate_z2).current_temperature;
               return;
             }
 
@@ -391,7 +410,7 @@ interval:
               float combined_climate_cons = d_h_cons + d_c_cons;
               float combined_climate_prod = d_h_prod + d_c_prod;
 
-              id(asgard_dashboard_id)->update_actual_data(last_hour, last_day, combined_climate_cons, combined_climate_prod, d_d_cons, d_d_prod, room, d_standby);
+              id(asgard_dashboard_id)->update_actual_data(last_hour, last_day, combined_climate_cons, combined_climate_prod, d_d_cons, d_d_prod, room, d_standby${z2_room_temp_arg});
 
               // Save the new baseline for the next hour
               last_h_cons = cur_h_cons;
@@ -404,6 +423,7 @@ interval:
               last_hour   = cur_hr;
               last_day    = cur_day;
               last_room   = id(virtual_climate_z1).current_temperature;
+              ${z2_cpp_prefix} last_room_z2 = id(virtual_climate_z2).current_temperature;
             }
           }
 

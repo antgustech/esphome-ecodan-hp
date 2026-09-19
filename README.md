@@ -3,6 +3,8 @@ ESPHome implementation of the CN105 protocol. It can operate as standalone or wi
 
 The remote thermostat protocol CNRF is supported by [esphome-ecodan-remote-thermostat](https://github.com/gekkekoe/esphome-ecodan-remote-thermostat). It implements a virtual thermostat that can be linked with any temperature sensor. Alternatively the [Asgard PCB](https://github.com/gekkekoe/esphome-ecodan-hp/blob/main/asgard/README.md) supports a higher resolution virtual thermostat.
 
+[![Order Asgard](https://img.shields.io/badge/Order-Asgard%20PCB-0070BA?style=for-the-badge&logo=stripe&logoColor=white)](https://buy.stripe.com/aFa6oIblrcIPaNN3Wq4AU00)
+
 ### Stand alone [Dashboard](http://ecodan-heatpump.local/dashboard) (Runs locally, no cloud)
 ![Stand Alone Mode](img/asgard-standalone.png?v=3) 
 ![Stand Alone Mode Settings](img/asgard-standalone-settings.png?v=3) 
@@ -61,8 +63,7 @@ If you want to contribute a translation: copy the file `ecodan-labels-en.yaml` t
 
 # Result
 Here's how it's connected inside the heatpump:
-
-![image](https://github.com/gekkekoe/esphome-ecodan-hp/blob/main/img/asgard-installed.png?raw=true)
+![image](img/asgard-installed.jpg?raw=true)
 
 
 [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/gekkekoe)

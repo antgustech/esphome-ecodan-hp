@@ -9,7 +9,7 @@
 ### Why use the Asgard Sub-assembly?
 * Enables Virtual Thermostat control (IN1/IN6) as a modern alternative to CNRF.
 * High-resolution temperature sensor integration (DS18B20 support).
-* Pass-through (Slave) port functionality for Melcloud or Procon modules.
+* Pass-through (Proxy) port functionality for Melcloud or Procon modules.
 * 100% Local control (No Cloud dependency).
 
 # Ordering & Availability
@@ -22,11 +22,13 @@
 <div align="center">
   <h2>Order via the links/buttons below:</h2>
 
-  ⚠️ **Asgard and Odin are currently in stock**
+  ⚠️ **Asgard and Odin are currently in stock** <br>
+  ⚠️ **Due to regulation (PPWR), shipping to EU countries other than NL has been [suspended](https://github.com/gekkekoe/esphome-ecodan-hp/discussions/399)**
 
-| Standard Order (NL/EU) | UK Customers Only |
-| :--- | :--- |
-| [![Order Standard](https://img.shields.io/badge/Order-Standard%20Order-0070BA?style=for-the-badge&logo=stripe&logoColor=white)](https://buy.stripe.com/aFa6oIblrcIPaNN3Wq4AU00)| [![Order UK Bundle](https://img.shields.io/badge/Order-Asgard%20%2B%20Odin%20Bundle-0070BA?style=for-the-badge&logo=stripe&logoColor=white)](https://buy.stripe.com/9B6dRacpv6krcVV3Wq4AU05)|
+
+| Standard Order (NL) |
+| :--- |
+| [![Order Standard](https://img.shields.io/badge/Order-Standard%20Order-0070BA?style=for-the-badge&logo=stripe&logoColor=white)](https://buy.stripe.com/aFa6oIblrcIPaNN3Wq4AU00) |
 
 </div>
 
@@ -75,10 +77,8 @@ To get started, complete the physical hardware installation, then choose your pr
 
 | Step | User Path | Guide |
 | :--- | :--- | :--- |
-| **1. Hardware** | All Users | [![Hardware Setup](https://img.shields.io/badge/Hardware_Setup-333333?style=for-the-badge&logo=arduino&logoColor=white)](./manual.md) |
+| **1. Getting Started** | All Users | [![Getting Started](https://img.shields.io/badge/Getting_Started_Guide-333333?style=for-the-badge&logo=arduino&logoColor=white)](./manual.md) |
 | **2. Software** | Home Assistant | [![HA Setup](https://img.shields.io/badge/Home_Assistant-41BDF5?style=for-the-badge&logo=home-assistant&logoColor=white)](./ha-config.md) |
-| | Standalone (Quick AA Setup) | [![AA Wizard](https://img.shields.io/badge/Auto_Adaptive_Wizard-8A2BE2?style=for-the-badge&logo=smartthings&logoColor=white)](./sa-wizard.md) |
-| | Standalone (Full Config) | [![Standalone Setup](https://img.shields.io/badge/Standalone_Full_Config-02569B?style=for-the-badge&logo=espressif&logoColor=white)](./sa-config.md) |
 
 ---
 

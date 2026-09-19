@@ -109,6 +109,7 @@ substitutions:
   status_water_pump: Status water pomp
   status_water_pump_2: Status water pomp 2
   status_water_pump_3: Status water pomp 3
+  status_water_pump_4: Status water pomp 4
   status_mixing_valve: Mixing Valve Status
   mixing_valve_step: Mixing Valve Stap
   status_multi_zone: Multizonestatus
@@ -194,3 +195,12 @@ substitutions:
   num_raw_cool_runtime_hours: "Draaiuren koelen (Raw)"
   num_raw_cool_avg_outside_temp: "Gem. buitentemp. koelen (Raw)"
   num_raw_cool_avg_room_temp: "Ruwe gem. kamertemperatuur koelen"
+  num_raw_heat_produced_z2: "Ruw Geproduceerd Z2"
+  num_raw_elec_consumed_z2: "Ruw Stroomverbruik Z2"
+  num_raw_runtime_hours_z2: "Ruwe Draaitijd Z2 (Uren)"
+  num_raw_avg_room_temp_z2: "Ruwe Gem. Kamertemperatuur Z2 (°C)"
+  num_raw_delta_room_temp_z2: "Ruwe Delta Kamertemperatuur Z2 (°C)"
+  num_raw_cool_produced_z2: "Geproduceerde koeling Z2 (Raw)"
+  num_raw_cool_elec_consumed_z2: "Stroomverbruik koelen Z2 (Raw)"
+  num_raw_cool_runtime_hours_z2: "Draaiuren koelen Z2 (Raw)"
+  num_raw_cool_avg_room_temp_z2: "Ruwe gem. kamertemperatuur koelen Z2"

@@ -84,6 +84,8 @@ namespace esphome
                                         float min_output, 
                                         float max_output, 
                                         const std::vector<float>& prod,
+                                        const std::vector<float>& prod_z1,
+                                        const std::vector<float>& prod_z2,
                                         const std::vector<float>& solar,
                                         const std::vector<float>& op_mode) {
             if (current_hour == -1) return;
@@ -105,6 +107,15 @@ namespace esphome
                 this->odin_operation_mode_.assign(24, NAN);
                 this->odin_production_.assign(24, NAN);
                 this->odin_data_ready_ = true;
+            }
+
+            const bool two_zone = (!prod_z1.empty() && !prod_z2.empty());
+            if (two_zone) {
+                if (this->odin_production_z1_.size() != 24) this->odin_production_z1_.assign(24, NAN);
+                if (this->odin_production_z2_.size() != 24) this->odin_production_z2_.assign(24, NAN);
+            } else {
+                this->odin_production_z1_.clear();
+                this->odin_production_z2_.clear();
             }
 
             int first_update = is_first_run ? current_hour : current_hour + 1;
@@ -136,6 +147,18 @@ namespace esphome
                 }
             }
 
+            if (two_zone) {
+                int zone_first = (prod_first_update < current_hour) ? prod_first_update : current_hour;
+                for (int i = zone_first; i < 24; i++) {
+                    // Same midnight-wrap source offset as the combined vector: the
+                    // zone arrays are the same 48h rolling window, so on wrap the
+                    // new day's plan sits at 24-47.
+                    int src = i + prod_src_offset;
+                    if (src < (int)prod_z1.size()) this->odin_production_z1_[i] = prod_z1[src];
+                    if (src < (int)prod_z2.size()) this->odin_production_z2_[i] = prod_z2[src];
+                }
+            }
+
             if (first_update >= 0 && first_update < 48) {
                 for (int i = first_update; i < 48; i++) {
                     if (i < (int)solar.size())   this->odin_solar_forecast_[i] = solar[i];
@@ -143,14 +166,15 @@ namespace esphome
             }
 
             xSemaphoreGive(this->odin_mutex_);
-            ESP_LOGI(OPTIMIZER_TAG, "ODIN production targets loaded (48h). current_hour=%d midnight_wrap=%d data_day=%d",
-                     current_hour, (int)midnight_wrap, this->odin_data_day_);
+            ESP_LOGI(OPTIMIZER_TAG, "ODIN production targets loaded (48h). current_hour=%d midnight_wrap=%d data_day=%d two_zone=%d",
+                     current_hour, (int)midnight_wrap, this->odin_data_day_,
+                     (int)prod_z1.size() > 0 && (int)prod_z2.size() > 0);
         }
 
         // ─────────────────────────────────────────────────────────────────
         // Solver soft-stop: cut/restore relay when ODIN says 0 kWh
         // ─────────────────────────────────────────────────────────────────
-        void Optimizer::apply_solver_soft_stop(bool should_stop) {
+        void Optimizer::apply_solver_soft_stop(bool should_stop, OptimizerZone zone) {
             if (this->state_.ecodan_instance == nullptr) return;
             auto &status = this->state_.ecodan_instance->get_status();
 
@@ -167,34 +191,35 @@ namespace esphome
 
             int current_hour = this->get_current_ecodan_hour();
             if (current_hour < 0) return;  // Ecodan time not yet valid
-            auto *relay_z1    = this->state_.relay_switch_z1;
-            auto *relay_z2    = this->state_.relay_switch_z2;
+            auto *relay = (zone == OptimizerZone::ZONE_2) ? this->state_.relay_switch_z2 : this->state_.relay_switch_z1;
+            if (relay == nullptr) return;
+
+            const char *zl = (zone == OptimizerZone::ZONE_2) ? "Z2" : "Z1";
+            const int zi = (zone == OptimizerZone::ZONE_2) ? 1 : 0;
 
             if (should_stop) {
                 // One write per hour guard
-                if (this->solver_stop_active_ && this->solver_stop_hour_ == current_hour)
+                if (this->solver_stop_active_[zi] && this->solver_stop_hour_[zi] == current_hour)
                     return;
 
-                ESP_LOGI(OPTIMIZER_TAG, "Solver soft-stop: disable demand for hour %d", current_hour);
+                ESP_LOGI(OPTIMIZER_TAG, "Solver soft-stop %s: disable demand for hour %d", zl, current_hour);
 
-                if (relay_z1 != nullptr && relay_z1->state) relay_z1->turn_off();
-                if (relay_z2 != nullptr && relay_z2->state) relay_z2->turn_off();
+                if (relay->state) relay->turn_off();
 
-                this->solver_stop_active_ = true;
-                this->solver_stop_hour_   = current_hour;
+                this->solver_stop_active_[zi] = true;
+                this->solver_stop_hour_[zi]   = current_hour;
 
             } else {
                 // One write per hour guard to avoid chattering
-                if (this->solver_resume_hour_ == current_hour)
+                if (this->solver_resume_hour_[zi] == current_hour)
                     return;
-                this->solver_resume_hour_ = current_hour;
+                this->solver_resume_hour_[zi] = current_hour;
 
-                ESP_LOGI(OPTIMIZER_TAG, "Solver soft-start: enabled demand for hour %d", current_hour);
+                ESP_LOGI(OPTIMIZER_TAG, "Solver soft-start %s: enabled demand for hour %d", zl, current_hour);
 
-                if (relay_z1 != nullptr) relay_z1->turn_on();
-                if (relay_z2 != nullptr) relay_z2->turn_on();         
-                this->solver_stop_active_ = false;
-                this->solver_stop_hour_   = -1;
+                relay->turn_on();
+                this->solver_stop_active_[zi] = false;
+                this->solver_stop_hour_[zi]   = -1;
             }
         }
     } // namespace optimizer

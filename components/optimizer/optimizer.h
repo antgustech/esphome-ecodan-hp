@@ -110,6 +110,18 @@ namespace esphome
       float    last_total_dhw_consumed_     = 0.0f;
       float    last_total_all_consumed_     = 0.0f;
 
+      // Zone-2 buckets
+      float    daily_runtime_heat_z2_     = 0.0f;
+      float    daily_runtime_cool_z2_     = 0.0f;
+      float    daily_room_temp_sum_z2_    = 0.0f;
+      int      daily_room_temp_count_z2_  = 0;
+      float    daily_room_temp_min_z2_    = 99.0f;
+      float    daily_room_temp_max_z2_    = -99.0f;
+      float    last_total_z2_heating_produced_  = 0.0f;
+      float    last_total_z2_heating_consumed_  = 0.0f;
+      float    last_total_z2_cooling_produced_  = 0.0f;
+      float    last_total_z2_cooling_consumed_  = 0.0f;
+
       // Persistent energy bucket storage across reboots
       struct EnergyBucketState {
           uint32_t day = 0;
@@ -120,6 +132,10 @@ namespace esphome
           float last_total_dhw_produced = 0.0f;
           float last_total_dhw_consumed = 0.0f;
           float last_total_all_consumed = 0.0f;
+          float last_total_z2_heating_produced = 0.0f;
+          float last_total_z2_heating_consumed = 0.0f;
+          float last_total_z2_cooling_produced = 0.0f;
+          float last_total_z2_cooling_consumed = 0.0f;
       };
       void restore_energy_buckets_();
       void save_energy_buckets_(int day);
@@ -148,6 +164,9 @@ namespace esphome
       std::vector<float> odin_production_;
       std::vector<float> odin_solar_forecast_;
       std::vector<float> odin_operation_mode_;
+      // Per-zone production plans (two-zone ODIN solve)
+      std::vector<float> odin_production_z1_;
+      std::vector<float> odin_production_z2_;
       float odin_min_output_{0};
       float odin_max_output_{0};
 
@@ -155,17 +174,17 @@ namespace esphome
       bool     odin_data_ready_ {false};
       SemaphoreHandle_t odin_mutex_ = NULL;
 
-      // Solver soft-stop state
-      int  solver_stop_hour_   {-1};
-      bool solver_stop_active_ {false};
-      int  solver_resume_hour_ {-1};
+      // Solver soft-stop state (per-zone: [0]=Z1, [1]=Z2)
+      int  solver_stop_hour_   [2] {-1, -1};
+      bool solver_stop_active_ [2] {false, false};
+      int  solver_resume_hour_ [2] {-1, -1};
       bool adaptive_loop_running_ {false};
 
       // ── adaptive_loop.cpp ──────────────────────────────────────────────
       HeatingProfile   get_heating_profile_(int type_index);
       struct SolverResult { float load_ratio; bool heatpump_off; OptimizerOperationMode mode{OptimizerOperationMode::UNAVAILABLE}; int current_hour{-1}; };
       DefrostState resolve_defrost_state_();
-      SolverResult resolve_solver_result_(float room_target_temp, float current_room_temp);
+      SolverResult resolve_solver_result_(std::size_t zone, float room_target_temp, float current_room_temp);
       float            calculate_heating_flow_(std::size_t zone_i,
                                                const ecodan::Status &status,
                                                const HeatingProfile &prof,
@@ -191,12 +210,13 @@ namespace esphome
       float calculate_smart_boost(int profile, float error);
 
       // ── solver.cpp ────────────────────────────────────────────────────
-      void apply_solver_soft_stop(bool should_stop);
+      void apply_solver_soft_stop(bool should_stop, OptimizerZone zone);
 
       // ── events.cpp ────────────────────────────────────────────────────
       void on_feed_temp_change(float actual_flow_temp, OptimizerZone zone);
       void handle_dhw_feed_temp_(float actual_flow_temp, OptimizerZone zone);
       void on_operation_mode_change(uint8_t new_mode, uint8_t previous_mode);
+      void handle_legionella_transition_(bool entering);
 
       // ── prevention.cpp ────────────────────────────────────────────────
       void predictive_short_cycle_check_for_zone_(const ecodan::Status &status, OptimizerZone zone, bool is_cooling);
@@ -212,6 +232,7 @@ namespace esphome
       bool  is_post_dhw_window(const ecodan::Status &status);
       bool  is_heating_active(const ecodan::Status &status);
       bool  is_cooling_active(const ecodan::Status &status);
+      bool  is_compressor_active(const ecodan::Status &status);
       float clamp_flow_temp(float flow, float min_temp, float max_temp);
       float enforce_step_limit(const ecodan::Status &status, float actual_flow, float calculated_flow, bool is_cooling_mode);
       bool  set_flow_temp(float flow, OptimizerZone zone);
@@ -266,7 +287,7 @@ namespace esphome
       int  get_current_ecodan_hour();
       int  get_current_ecodan_day();
       bool has_old_odin_data();
-      void store_odin_data(int current_hour, float min_output, float max_output, const std::vector<float>& prod, const std::vector<float>& solar, const std::vector<float>& op_mode);
+      void store_odin_data(int current_hour, float min_output, float max_output, const std::vector<float>& prod, const std::vector<float>& prod_z1, const std::vector<float>& prod_z2, const std::vector<float>& solar, const std::vector<float>& op_mode);
       // Brings odin_data_day_ in sync with the new day without forcing a new solve 
       // the existing forecast (from the 23:55 solve) is still valid, only the "is this stale" check
       // needs to know we're now on the new day.

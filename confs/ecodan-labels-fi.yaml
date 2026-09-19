@@ -109,6 +109,7 @@ substitutions:
   status_water_pump: Vesipumpun tila
   status_water_pump_2: Vesipumppu 2 tila
   status_water_pump_3: Vesipumppu 3 tila
+  status_water_pump_4: Vesipumppu 4 tila
   status_mixing_valve: Sekoitusventtiilin tila
   mixing_valve_step: Sekoitusventtiilin asento
   status_multi_zone: Monivyöhyketila
@@ -194,3 +195,12 @@ substitutions:
   num_raw_cool_runtime_hours: "Jäähdytyksen käyntiaika (Raaka)"
   num_raw_cool_avg_outside_temp: "Keskim. ulkolämpötila jäähd. (Raaka)"
   num_raw_cool_avg_room_temp: "Raaka jäähdytys keskim. huonelämpötila"
+  num_raw_heat_produced_z2: "Raaka tuotettu lämpö Z2"
+  num_raw_elec_consumed_z2: "Raaka kulutettu sähkö Z2"
+  num_raw_runtime_hours_z2: "Raaka käyntiaika Z2 (Tuntia)"
+  num_raw_avg_room_temp_z2: "Raaka keskim. huonelämpötila Z2 (°C)"
+  num_raw_delta_room_temp_z2: "Raaka huonelämpötilan delta Z2 (°C)"
+  num_raw_cool_produced_z2: "Tuotettu jäähdytys Z2 (Raaka)"
+  num_raw_cool_elec_consumed_z2: "Jäähdytyksen sähkönkulutus Z2 (Raaka)"
+  num_raw_cool_runtime_hours_z2: "Jäähdytyksen käyntiaika Z2 (Raaka)"
+  num_raw_cool_avg_room_temp_z2: "Raaka jäähdytys keskim. huonelämpötila Z2"
